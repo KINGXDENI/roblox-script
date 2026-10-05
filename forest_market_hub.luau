@@ -560,12 +560,48 @@ local function getMyPlot()
     return nil
 end
 
+local function getLahanCFrame(lahan)
+    if not lahan then return nil end
+    if lahan:IsA("BasePart") then return lahan.CFrame end
+    if lahan:IsA("Model") then return lahan:GetPivot() end
+    return nil
+end
+
+local function getLahanPosition(lahan)
+    if not lahan then return nil end
+    if lahan:IsA("BasePart") then return lahan.Position end
+    if lahan:IsA("Model") then return lahan:GetPivot().Position end
+    return nil
+end
+
+local function getLahanSize(lahan)
+    if not lahan then return Vector3.new(20, 1, 20) end
+    if lahan:IsA("BasePart") then return lahan.Size end
+    if lahan:IsA("Model") then
+        local _, size = lahan:GetBoundingBox()
+        return size
+    end
+    return Vector3.new(20, 1, 20)
+end
+
 local function getMyLahans()
     local found = {}
     local plots = Workspace:FindFirstChild("Plot")
     if not plots then return found end
 
-    -- 1. Prioritas Utama: Cek plot yang memiliki LahanPrompt "Upgrade" (hanya ada di plot milik player!)
+    -- 1. Prioritas Utama: Cari lahan dengan atribut Owner == LP.UserId
+    for _, p in ipairs(plots:GetChildren()) do
+        for _, desc in ipairs(p:GetDescendants()) do
+            if desc.Name:find("Lahan") and (desc:IsA("BasePart") or desc:IsA("Model")) then
+                if desc:GetAttribute("Owner") == LP.UserId or desc:GetAttribute("OwnerId") == LP.UserId then
+                    table.insert(found, desc)
+                end
+            end
+        end
+    end
+    if #found > 0 then return found end
+
+    -- 2. Prioritas Kedua: Cek plot yang memiliki LahanPrompt "Upgrade" (hanya ada di plot milik player!)
     for _, p in ipairs(plots:GetChildren()) do
         local l1 = p:FindFirstChild("Lahan1")
         if l1 then
@@ -577,7 +613,7 @@ local function getMyLahans()
         end
     end
 
-    -- 2. Prioritas Kedua: Cek Papan Nama / Signboard yang tertulis nama player
+    -- 3. Prioritas Ketiga: Cek Papan Nama / Signboard yang tertulis nama player
     local myNames = { LP.Name:lower(), LP.DisplayName:lower() }
     for _, p in ipairs(plots:GetChildren()) do
         for _, desc in ipairs(p:GetDescendants()) do
@@ -596,14 +632,14 @@ local function getMyLahans()
         end
     end
 
-    -- 3. Prioritas Ketiga: Cek apakah ada tanaman yang memiliki OwnerId = UserId kita
+    -- 4. Prioritas Keempat: Cek Tanaman dengan OwnerId
     for _, p in ipairs(plots:GetChildren()) do
         local l1 = p:FindFirstChild("Lahan1")
         if l1 then
             local t = l1:FindFirstChild("Tanaman")
             if t then
                 for _, c in ipairs(t:GetChildren()) do
-                    if c:IsA("BasePart") and c:GetAttribute("OwnerId") == LP.UserId then
+                    if (c:IsA("BasePart") or c:IsA("Model")) and (c:GetAttribute("OwnerId") == LP.UserId or c:GetAttribute("Owner") == LP.UserId) then
                         table.insert(found, l1)
                         return found
                     end
@@ -612,23 +648,12 @@ local function getMyLahans()
         end
     end
 
-    -- 4. Fallback jika baru klaim: Ambil plot terdekat dengan player
-    local root = getRoot()
-    if root then
-        local closestL1 = nil
-        local minDist = math.huge
-        for _, p in ipairs(plots:GetChildren()) do
-            local l1 = p:FindFirstChild("Lahan1")
-            if l1 and l1:IsA("BasePart") then
-                local d = (root.Position - l1.Position).Magnitude
-                if d < minDist then
-                    minDist = d
-                    closestL1 = l1
-                end
-            end
-        end
-        if closestL1 and minDist < 80 then
-            table.insert(found, closestL1)
+    -- 5. Fallback: Dari getMyPlot()
+    local myPlot = getMyPlot()
+    if myPlot then
+        local l1 = myPlot:FindFirstChild("Lahan1")
+        if l1 then
+            table.insert(found, l1)
             return found
         end
     end
@@ -905,15 +930,30 @@ local function getSeedTool()
         State.FarmSeed = getBestCropForLevel()
     end
 
-    local targetSeed = State.FarmSeed:lower()
-    -- Cek karakter dan backpack secara menyeluruh
+    local targetSeed = (State.FarmSeed or "Kentang"):lower()
+    local synonyms = {
+        ["kentang"] = {"kentang", "potato"},
+        ["cabai"]   = {"cabai", "chili", "chilli", "cabe"},
+        ["jagung"]  = {"jagung", "corn"},
+        ["bawang"]  = {"bawang", "onion", "shallot"},
+        ["tomat"]   = {"tomat", "tomato"},
+        ["padi"]    = {"padi", "rice"},
+    }
+    local targetWords = synonyms[targetSeed] or { targetSeed }
+
+    -- Cek karakter dan backpack untuk bibit yang cocok
     for _, p in ipairs({LP.Character, LP.Backpack}) do
         if p then
             for _, t in ipairs(p:GetChildren()) do
                 if t:IsA("Tool") then
                     local nm = t.Name:lower()
-                    if nm:find("bibit") and nm:find(targetSeed) then
-                        return t
+                    local isSeed = t:GetAttribute("IsSeed") or nm:find("bibit") or nm:find("seed")
+                    if isSeed then
+                        for _, word in ipairs(targetWords) do
+                            if nm:find(word) then
+                                return t
+                            end
+                        end
                     end
                 end
             end
@@ -924,8 +964,11 @@ local function getSeedTool()
     for _, p in ipairs({LP.Character, LP.Backpack}) do
         if p then
             for _, t in ipairs(p:GetChildren()) do
-                if t:IsA("Tool") and t.Name:lower():find("bibit") then
-                    return t
+                if t:IsA("Tool") then
+                    local nm = t.Name:lower()
+                    if t:GetAttribute("IsSeed") or nm:find("bibit") or nm:find("seed") then
+                        return t
+                    end
                 end
             end
         end
@@ -938,8 +981,11 @@ local function getWaterTool()
     for _, p in ipairs({LP.Character, LP.Backpack}) do
         if p then
             for _, t in ipairs(p:GetChildren()) do
-                if t:IsA("Tool") and (t.Name:find("Penyiram") or t.Name:find("Water") or t:GetAttribute("IsWater")) then
-                    return t
+                if t:IsA("Tool") then
+                    local nm = t.Name:lower()
+                    if nm:find("penyiram") or nm:find("water") or nm:find("siram") or nm:find("can") or t:GetAttribute("IsWater") then
+                        return t
+                    end
                 end
             end
         end
@@ -1207,36 +1253,17 @@ end
 -- 1. AUTO FARM KEBUN (ANTI-KICK WITH NATURAL PROXIMITY)
 -- ════════════════════════════════════════════════════════════════════════════
 local function approachPosition(targetPos, reachDist, maxWait)
-    local hum = getHum()
     local root = getRoot()
-    if not hum or not root then return false end
+    if not root then return false end
 
     reachDist = reachDist or 5
-    maxWait = maxWait or 1.5
-
     local d = (Vector2.new(root.Position.X, root.Position.Z) - Vector2.new(targetPos.X, targetPos.Z)).Magnitude
     if d <= reachDist then return true end
 
-    hum:MoveTo(targetPos)
-    local t0 = os.clock()
-    while (os.clock() - t0) < maxWait do
-        if not LP.Character or not LP.Character.Parent then return false end
-        local curDist = (Vector2.new(root.Position.X, root.Position.Z) - Vector2.new(targetPos.X, targetPos.Z)).Magnitude
-        if curDist <= reachDist then
-            return true
-        end
-        task.wait(0.04)
-    end
-
-    -- Jika jarak dekat (< 15 studs) tapi macet, reposisi lembut
-    local finalDist = (Vector2.new(root.Position.X, root.Position.Z) - Vector2.new(targetPos.X, targetPos.Z)).Magnitude
-    if finalDist <= 15 then
-        root.CFrame = CFrame.new(targetPos + Vector3.new(0, 2.5, 0))
-        task.wait(0.12)
-        return true
-    end
-
-    return false
+    -- Di mobile executor, reposisi langsung agar tidak diinterupsi virtual joystick
+    root.CFrame = CFrame.new(targetPos + Vector3.new(0, 2.2, 0.8), targetPos)
+    task.wait(0.1)
+    return true
 end
 
 local farmRunning = false
@@ -1256,21 +1283,29 @@ local function doOneFarmCycle()
         return
     end
     local lahan = myLahans[1]
-
-    -- Posisikan di lahan jika sedang di luar area kebun (> 50 studs)
-    local distToLahan = (root.Position - lahan.Position).Magnitude
-    if distToLahan > 50 then
-        root.CFrame = CFrame.new(lahan.Position + Vector3.new(0, 3.5, 0))
-        task.wait(0.4)
+    local lPos = getLahanPosition(lahan)
+    local lSize = getLahanSize(lahan)
+    local lCF = getLahanCFrame(lahan)
+    if not lPos or not lCF then
+        isActionBusy = false
+        return
     end
 
-    -- 1. Panen
+    -- Posisikan di lahan jika sedang di luar area kebun (> 40 studs)
+    local distToLahan = (root.Position - lPos).Magnitude
+    if distToLahan > 40 then
+        root.CFrame = CFrame.new(lPos + Vector3.new(0, 3.5, 0))
+        task.wait(0.3)
+    end
+
+    -- 1. Panen (Mendukung BasePart & Model Tanaman)
     local tFolder = lahan:FindFirstChild("Tanaman")
     local readyCrops = {}
     if tFolder then
         for _, crop in ipairs(tFolder:GetChildren()) do
-            if crop:IsA("BasePart")
-                and crop:GetAttribute("OwnerId") == LP.UserId
+            local isCrop = crop:IsA("BasePart") or crop:IsA("Model")
+            local isOwner = crop:GetAttribute("OwnerId") == LP.UserId or crop:GetAttribute("Owner") == LP.UserId
+            if isCrop and isOwner
                 and crop:GetAttribute("Ready") == true
                 and crop:GetAttribute("Harvested") ~= true
             then
@@ -1281,47 +1316,52 @@ local function doOneFarmCycle()
 
     if #readyCrops > 0 and panenRemote then
         table.sort(readyCrops, function(a, b)
-            return (root.Position - a.Position).Magnitude < (root.Position - b.Position).Magnitude
+            local posA = a:IsA("BasePart") and a.Position or a:GetPivot().Position
+            local posB = b:IsA("BasePart") and b.Position or b:GetPivot().Position
+            return (root.Position - posA).Magnitude < (root.Position - posB).Magnitude
         end)
         for _, crop in ipairs(readyCrops) do
             if crop and crop.Parent and crop:GetAttribute("Ready") == true and crop:GetAttribute("Harvested") ~= true then
-                approachPosition(crop.Position, 4.5, 1.2)
+                local cropPos = crop:IsA("BasePart") and crop.Position or crop:GetPivot().Position
+                root.CFrame = CFrame.new(cropPos + Vector3.new(0, 2.2, 0.8), cropPos)
+                task.wait(0.12)
                 pcall(function() panenRemote:FireServer(crop) end)
-                task.wait(0.35)
+                task.wait(0.2)
             end
         end
-        task.wait(0.2)
+        task.wait(0.15)
     end
 
-    -- 2. Kapasitas
+    -- 2. Kapasitas Kebun
     local stats = getLahanStats()
     local maxCap = stats.max
     local currentPlants = tFolder and tFolder:GetChildren() or {}
     local activePlants = {}
     local existingPositions = {}
     for _, p in ipairs(currentPlants) do
-        if p:IsA("BasePart") and p:GetAttribute("Harvested") ~= true then
+        if (p:IsA("BasePart") or p:IsA("Model")) and p:GetAttribute("Harvested") ~= true then
             table.insert(activePlants, p)
-            table.insert(existingPositions, p.Position)
+            local pPos = p:IsA("BasePart") and p.Position or p:GetPivot().Position
+            table.insert(existingPositions, pPos)
         end
     end
 
-    -- 3. Re-tanam (Karakter mendekati setiap titik tanam secara alami)
-    if State.AutoHarvest and #activePlants < maxCap and tanamRemote and hum then
+    -- 3. Re-tanam (Mendukung AutoFarm Kebun secara seamless)
+    if (State.AutoFarm or State.AutoHarvest) and #activePlants < maxCap and tanamRemote and hum then
         local slotsNeeded = maxCap - #activePlants
         local seed = getSeedTool()
-        if not seed and State.AutoBuySeed then
+        if not seed and (State.AutoBuySeed or State.AutoFarm) then
             buySeeds(State.FarmSeed, math.ceil(slotsNeeded / 5))
-            task.wait(0.4)
+            task.wait(0.35)
             seed = getSeedTool()
         end
 
         if seed then
             hum:EquipTool(seed)
-            task.wait(0.25)
+            task.wait(0.2)
 
-            local halfX = math.max((lahan.Size.X / 2) - 3.5, 1)
-            local halfZ = math.max((lahan.Size.Z / 2) - 3.5, 1)
+            local halfX = math.max((lSize.X / 2) - 3.5, 1)
+            local halfZ = math.max((lSize.Z / 2) - 3.5, 1)
             local step  = 4
 
             local plantedNow = 0
@@ -1332,9 +1372,9 @@ local function doOneFarmCycle()
 
                     if not seed or not seed.Parent then
                         seed = getSeedTool()
-                        if not seed and State.AutoBuySeed then
+                        if not seed and (State.AutoBuySeed or State.AutoFarm) then
                             buySeeds(State.FarmSeed, 1)
-                            task.wait(0.4)
+                            task.wait(0.35)
                             seed = getSeedTool()
                         end
                         if not seed then break end
@@ -1342,7 +1382,7 @@ local function doOneFarmCycle()
                         task.wait(0.2)
                     end
 
-                    local candPos = lahan.CFrame:PointToWorldSpace(Vector3.new(dx, lahan.Size.Y / 2 + 0.1, dz))
+                    local candPos = lCF:PointToWorldSpace(Vector3.new(dx, (lSize.Y / 2) + 0.1, dz))
                     local tooClose = false
                     for _, ex in ipairs(existingPositions) do
                         local dist2D = (Vector2.new(candPos.X, candPos.Z) - Vector2.new(ex.X, ex.Z)).Magnitude
@@ -1353,11 +1393,12 @@ local function doOneFarmCycle()
                     end
 
                     if not tooClose then
-                        approachPosition(candPos, 4.5, 1.2)
+                        root.CFrame = CFrame.new(candPos + Vector3.new(0, 2.2, 0.8), candPos)
+                        task.wait(0.12)
                         pcall(function() tanamRemote:FireServer(candPos) end)
                         table.insert(existingPositions, candPos)
                         plantedNow = plantedNow + 1
-                        task.wait(0.35)
+                        task.wait(0.25)
                     end
                 end
             end
@@ -1366,12 +1407,13 @@ local function doOneFarmCycle()
         end
     end
 
-    -- 4. Siram (Karakter mendekati tanaman kering secara alami)
-    if State.AutoSiram and siramRemote then
+    -- 4. Siram (Mendukung AutoFarm Kebun / AutoSiram secara otomatis dengan multi-pulse saturasi air)
+    if (State.AutoFarm or State.AutoSiram) and siramRemote then
         local needWater = {}
         for _, crop in ipairs(tFolder and tFolder:GetChildren() or {}) do
-            if crop:IsA("BasePart")
-                and crop:GetAttribute("OwnerId") == LP.UserId
+            local isCrop = crop:IsA("BasePart") or crop:IsA("Model")
+            local isOwner = crop:GetAttribute("OwnerId") == LP.UserId or crop:GetAttribute("Owner") == LP.UserId
+            if isCrop and isOwner
                 and crop:GetAttribute("Ready") ~= true
                 and crop:GetAttribute("Wet") ~= true
             then
@@ -1383,19 +1425,24 @@ local function doOneFarmCycle()
             local waterTool = getWaterTool()
             if waterTool and hum then
                 hum:EquipTool(waterTool)
-                task.wait(0.25)
+                task.wait(0.2)
                 for _, crop in ipairs(needWater) do
                     if crop and crop.Parent and crop:GetAttribute("Wet") ~= true then
-                        approachPosition(crop.Position, 5, 1.2)
-                        siramRemote:FireServer()
-                        task.wait(0.35)
+                        local cropPos = crop:IsA("BasePart") and crop.Position or crop:GetPivot().Position
+                        root.CFrame = CFrame.new(cropPos + Vector3.new(0, 2.2, 0.8), cropPos)
+                        task.wait(0.1)
+                        for pulse = 1, 6 do
+                            if crop:GetAttribute("Wet") == true then break end
+                            pcall(function() siramRemote:FireServer() end)
+                            task.wait(0.08)
+                        end
                     end
                 end
             end
         end
     end
 
-    approachPosition(lahan.Position + Vector3.new(0, 3.5, 0), 5, 1.5)
+    root.CFrame = CFrame.new(lPos + Vector3.new(0, 3.5, 0))
     isActionBusy = false
 end
 
