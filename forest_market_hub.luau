@@ -474,6 +474,12 @@ local function closeAllGameGuis()
     local targetGuis = {
         {"ShopGui", "ShopNPC"},
         {"MemasakGui", nil},
+        {"CookingGui", nil},
+        {"Cooking", nil},
+        {"CookGui", nil},
+        {"DapurGui", nil},
+        {"Dapur", nil},
+        {"StoveGui", nil},
         {"TempaGui", nil},
         {"PasarGaibGui", "PasarGaib"},
         {"JualBabiGui", "JualBabi"},
@@ -2162,190 +2168,241 @@ task.spawn(function()
     end
 end)
 
+local function closeCookingGui(cGui)
+    pcall(function()
+        if cGui then
+            for _, d in ipairs(cGui:GetDescendants()) do
+                if (d:IsA("GuiButton") or d:IsA("TextButton") or d:IsA("ImageButton")) and isGuiObjectActuallyVisible(d) then
+                    local nm = d.Name:lower()
+                    local txt = (d:IsA("TextButton") or d:IsA("TextLabel")) and d.Text:lower():gsub("%s+", "") or ""
+                    if nm:find("close") or nm:find("tutup") or nm:find("exit") or nm == "x" or txt == "x" or txt == "close" or txt == "tutup" or txt == "keluar" then
+                        clickGuiElement(d)
+                        task.wait(0.12)
+                        break
+                    end
+                end
+            end
+        end
+        closeGameGui("CookingGui")
+        closeGameGui("MemasakGui")
+        closeGameGui("Cooking")
+        closeGameGui("CookGui")
+        closeGameGui("DapurGui")
+        closeGameGui("Dapur")
+        closeGameGui("CookingUI")
+        closeGameGui("StoveGui")
+        if cGui and cGui:IsA("ScreenGui") then
+            cGui.Enabled = false
+            for _, child in ipairs(cGui:GetChildren()) do
+                if child:IsA("GuiObject") then
+                    child.Visible = false
+                end
+            end
+        end
+    end)
+end
+
 local function doExecuteCooking(specificRecipe)
+    if isActionBusy then return false end
+    isActionBusy = true
+
     local root = getRoot()
-    if not root then return false end
-
-    -- 1. Buka / cari GUI Cooking yang sedang aktif
-    local cGui = findCookingGui()
-    local savedCFrame = nil
-
-    -- 2. Jika GUI belum terbuka, dekati kompor & picu prompt kompor secara otomatis (Support Mobile)
-    if not cGui then
-        local kompor = findKompor()
-        local prompt = getCookingPrompt()
-        local kPos = getKomporPos(prompt or kompor)
-
-        if kPos and root then
-            local dist = (root.Position - kPos).Magnitude
-            if dist > 6 then
-                savedCFrame = root.CFrame
-                root.CFrame = CFrame.new(kPos + Vector3.new(0, 1.8, 1.8), kPos)
-                task.wait(0.25)
-            end
-
-            if prompt and prompt.Enabled then
-                safeFirePrompt(prompt)
-                task.wait(0.35)
-            end
-        end
-
-        cGui = findCookingGui()
-        if not cGui then
-            openGameGui("MemasakGui")
-            openGameGui("CookingGui")
-            openGameGui("Cooking")
-            task.wait(0.25)
-            cGui = findCookingGui()
-        end
+    if not root then
+        isActionBusy = false
+        return false
     end
 
     local cookedSuccess = false
+    local savedCFrame = root.CFrame
 
-    -- 3. Klaim masakan selesai di Queue terlebih dahulu
-    if cGui then
-        local claimedCount = 0
-        for _, d in ipairs(cGui:GetDescendants()) do
-            if (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("ImageButton")) and isGuiObjectActuallyVisible(d) then
-                local txt = (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Text:lower() or ""
-                local nm = d.Name:lower()
-                if txt:find("claim") or txt:find("collect") or txt:find("ambil") or txt:find("take") or txt:find("selesai")
-                    or txt:find("ready") or txt:find("done") or txt == "00:00" or txt == "0:00" or nm:find("claim") or nm:find("collect") then
-                    if clickGuiElement(d) then
-                        cookedSuccess = true
-                        claimedCount = claimedCount + 1
-                        log("[Cook] Klaim masakan matang di Queue: " .. (txt ~= "" and txt or nm))
-                        pcall(function()
-                            WindUI:Notify({
-                                Title = "🍽️ Masakan Siap!",
-                                Desc = "Berhasil mengklaim masakan yang matang.",
-                                Duration = 2,
-                                Icon = "check"
-                            })
-                        end)
-                        task.wait(0.2)
-                    end
+    local ok, err = pcall(function()
+        -- 1. Buka / cari GUI Cooking yang sedang aktif
+        local cGui = findCookingGui()
+
+        -- 2. Jika GUI belum terbuka, dekati kompor & picu prompt kompor secara otomatis (Support Mobile)
+        if not cGui then
+            local kompor = findKompor()
+            local prompt = getCookingPrompt()
+            local kPos = getKomporPos(prompt or kompor)
+
+            if kPos and root then
+                local dist = (root.Position - kPos).Magnitude
+                if dist > 6 then
+                    root.CFrame = CFrame.new(kPos + Vector3.new(0, 1.8, 1.8), kPos)
+                    task.wait(0.25)
                 end
+
+                if prompt and prompt.Enabled then
+                    safeFirePrompt(prompt)
+                    task.wait(0.35)
+                end
+            end
+
+            cGui = findCookingGui()
+            if not cGui then
+                openGameGui("MemasakGui")
+                openGameGui("CookingGui")
+                openGameGui("Cooking")
+                task.wait(0.25)
+                cGui = findCookingGui()
             end
         end
 
-        -- 4. Periksa apakah antrean Queue masih penuh (misal 3/3 sedang berjalan)
-        local pendingCount = 0
-        for _, d in ipairs(cGui:GetDescendants()) do
-            if d:IsA("TextLabel") and isGuiObjectActuallyVisible(d) then
-                local t = d.Text:lower()
-                if t:find("pending") or t:match("%d%d:%d%d") then
-                    pendingCount = pendingCount + 1
-                end
-            end
-        end
-
-        if pendingCount >= 3 then
-            log("[Cook] Antrean kompor penuh (" .. pendingCount .. " masakan berjalan). Menunggu matang...")
-            if savedCFrame then
-                local lahans = getMyLahans()
-                if State.AutoFarm and #lahans > 0 then
-                    root.CFrame = CFrame.new(lahans[1].Position + Vector3.new(0, 3.5, 0))
-                else
-                    root.CFrame = savedCFrame
-                end
-            end
-            return false
-        end
-
-        -- 5. Cari dan klik tombol 'Cook' atau 'Masak' pada Recipe List
-        for _, d in ipairs(cGui:GetDescendants()) do
-            local isCookBtn = false
-            local btnTarget = nil
-
-            if (d:IsA("TextLabel") or d:IsA("TextButton")) and isGuiObjectActuallyVisible(d) then
-                local txt = d.Text:lower():gsub("%s+", "")
-                if txt == "cook" or txt == "masak" then
-                    isCookBtn = true
-                    btnTarget = d
-                end
-            elseif (d:IsA("ImageButton") or d:IsA("GuiButton")) and isGuiObjectActuallyVisible(d) then
-                local nm = d.Name:lower()
-                if nm == "cook" or nm == "cookbutton" or nm == "btncook" or nm == "masak" then
-                    isCookBtn = true
-                    btnTarget = d
-                end
-            end
-
-            if isCookBtn and btnTarget then
-                -- Telusuri container resep ke atas untuk membaca nama resep
-                local cardText = ""
-                local curr = btnTarget.Parent
-                local depth = 0
-                while curr and curr ~= cGui and depth < 6 and curr:IsA("GuiObject") do
-                    local texts = {}
-                    for _, cd in ipairs(curr:GetDescendants()) do
-                        if cd:IsA("TextLabel") and cd ~= btnTarget and cd.Visible and cd.Text ~= "" then
-                            local tLow = cd.Text:lower():gsub("%s+", "")
-                            if tLow ~= "cook" and tLow ~= "masak" then
-                                table.insert(texts, cd.Text:lower())
-                            end
+        -- 3. Klaim masakan selesai di Queue terlebih dahulu
+        if cGui then
+            local claimedCount = 0
+            for _, d in ipairs(cGui:GetDescendants()) do
+                if (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("ImageButton")) and isGuiObjectActuallyVisible(d) then
+                    local txt = (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Text:lower() or ""
+                    local nm = d.Name:lower()
+                    if txt:find("claim") or txt:find("collect") or txt:find("ambil") or txt:find("take") or txt:find("selesai")
+                        or txt:find("ready") or txt:find("done") or txt == "00:00" or txt == "0:00" or nm:find("claim") or nm:find("collect") then
+                        if clickGuiElement(d) then
+                            cookedSuccess = true
+                            claimedCount = claimedCount + 1
+                            log("[Cook] Klaim masakan matang di Queue: " .. (txt ~= "" and txt or nm))
+                            pcall(function()
+                                WindUI:Notify({
+                                    Title = "🍽️ Masakan Siap!",
+                                    Desc = "Berhasil mengklaim masakan yang matang.",
+                                    Duration = 2,
+                                    Icon = "check"
+                                })
+                            end)
+                            task.wait(0.2)
                         end
                     end
-                    if #texts > 0 then
-                        cardText = table.concat(texts, " ")
-                        break
-                    end
-                    curr = curr.Parent
-                    depth = depth + 1
                 end
+            end
 
-                local matchesTarget = true
-                if specificRecipe and specificRecipe ~= "Semua" then
-                    local targetLow = specificRecipe:lower():gsub("%s+", "")
-                    local cardClean = cardText:lower():gsub("%s+", "")
-                    matchesTarget = (cardClean:find(targetLow) ~= nil)
-                end
-
-                if matchesTarget then
-                    if clickGuiElement(btnTarget) then
-                        cookedSuccess = true
-                        local recipeName = cardText ~= "" and cardText:sub(1, 30) or (specificRecipe or "Resep")
-                        log("[Cook] Klik Cook pada: " .. recipeName)
-                        pcall(function()
-                            WindUI:Notify({
-                                Title = "🍳 Sedang Memasak",
-                                Desc = "Memasak: " .. recipeName,
-                                Duration = 2.5,
-                                Icon = "flame"
-                            })
-                        end)
-                        task.wait(0.25)
-                        break
+            -- 4. Periksa apakah antrean Queue masih penuh (misal 3/3 sedang berjalan)
+            local pendingCount = 0
+            for _, d in ipairs(cGui:GetDescendants()) do
+                if d:IsA("TextLabel") and isGuiObjectActuallyVisible(d) then
+                    local t = d.Text:lower()
+                    if t:find("pending") or t:match("%d%d:%d%d") then
+                        pendingCount = pendingCount + 1
                     end
                 end
             end
-        end
-    end
 
-    -- 6. Fallback Remote jika didukung server
-    local cookRemotes = {
-        getR("CookStove"),
-        getR("Masak"),
-        getR("Memasak"),
-        getR("Kompor"),
-        getR("Dapur"),
-        getR("ProsesBahan"),
-    }
-    for _, rem in ipairs(cookRemotes) do
-        if rem then
-            pcall(function()
-                if specificRecipe and specificRecipe ~= "Semua" then
-                    rem:InvokeServer(specificRecipe)
-                else
-                    rem:InvokeServer()
+            if pendingCount >= 3 then
+                log("[Cook] Antrean kompor penuh (" .. pendingCount .. "/3 masakan berjalan). Menunggu matang...")
+                closeCookingGui(cGui)
+                return
+            end
+
+            -- 5. Masak resep pada slot antrean kosong yang tersedia
+            local slotsToCook = math.max(1, 3 - pendingCount)
+            local cookedCount = 0
+
+            for _, d in ipairs(cGui:GetDescendants()) do
+                if cookedCount >= slotsToCook then break end
+
+                local isCookBtn = false
+                local btnTarget = nil
+
+                if (d:IsA("TextLabel") or d:IsA("TextButton")) and isGuiObjectActuallyVisible(d) then
+                    local txt = d.Text:lower():gsub("%s+", "")
+                    if txt == "cook" or txt == "masak" then
+                        isCookBtn = true
+                        btnTarget = d
+                    end
+                elseif (d:IsA("ImageButton") or d:IsA("GuiButton")) and isGuiObjectActuallyVisible(d) then
+                    local nm = d.Name:lower()
+                    if nm == "cook" or nm == "cookbutton" or nm == "btncook" or nm == "masak" then
+                        isCookBtn = true
+                        btnTarget = d
+                    end
                 end
-            end)
+
+                if isCookBtn and btnTarget then
+                    -- Telusuri container resep ke atas untuk membaca nama resep
+                    local cardText = ""
+                    local curr = btnTarget.Parent
+                    local depth = 0
+                    while curr and curr ~= cGui and depth < 6 and curr:IsA("GuiObject") do
+                        local texts = {}
+                        for _, cd in ipairs(curr:GetDescendants()) do
+                            if cd:IsA("TextLabel") and cd ~= btnTarget and cd.Visible and cd.Text ~= "" then
+                                local tLow = cd.Text:lower():gsub("%s+", "")
+                                if tLow ~= "cook" and tLow ~= "masak" then
+                                    table.insert(texts, cd.Text:lower())
+                                end
+                            end
+                        end
+                        if #texts > 0 then
+                            cardText = table.concat(texts, " ")
+                            break
+                        end
+                        curr = curr.Parent
+                        depth = depth + 1
+                    end
+
+                    local matchesTarget = true
+                    if specificRecipe and specificRecipe ~= "Semua" then
+                        local targetLow = specificRecipe:lower():gsub("%s+", "")
+                        local cardClean = cardText:lower():gsub("%s+", "")
+                        matchesTarget = (cardClean:find(targetLow) ~= nil)
+                    end
+
+                    if matchesTarget then
+                        if clickGuiElement(btnTarget) then
+                            cookedSuccess = true
+                            cookedCount = cookedCount + 1
+                            local recipeName = cardText ~= "" and cardText:sub(1, 30) or (specificRecipe or "Resep")
+                            log("[Cook] Klik Cook (" .. cookedCount .. "/" .. slotsToCook .. ") pada: " .. recipeName)
+                            pcall(function()
+                                WindUI:Notify({
+                                    Title = "🍳 Sedang Memasak",
+                                    Desc = "Memasak: " .. recipeName,
+                                    Duration = 2,
+                                    Icon = "flame"
+                                })
+                            end)
+                            task.wait(0.3)
+                        end
+                    end
+                end
+            end
+
+            -- Tutup GUI cooking setelah selesai interaksi agar tidak menutupi layar & tidak looping
+            closeCookingGui(cGui)
         end
+
+        -- 6. Fallback Remote jika didukung server
+        local cookRemotes = {
+            getR("CookStove"),
+            getR("Masak"),
+            getR("Memasak"),
+            getR("Kompor"),
+            getR("Dapur"),
+            getR("ProsesBahan"),
+        }
+        for _, rem in ipairs(cookRemotes) do
+            if rem then
+                pcall(function()
+                    if specificRecipe and specificRecipe ~= "Semua" then
+                        rem:InvokeServer(specificRecipe)
+                    else
+                        rem:InvokeServer()
+                    end
+                end)
+            end
+        end
+    end)
+
+    if not ok and err then
+        log("[Cook Error] " .. tostring(err))
     end
 
-    -- 7. Kembalikan posisi karakter jika tadi berpindah dari tempat jauh (misal sedang AutoFarm)
-    if savedCFrame then
+    -- Pastikan GUI selalu tertutup rapi setelah eksekusi
+    pcall(function()
+        closeCookingGui(findCookingGui())
+    end)
+
+    -- 7. Kembalikan posisi karakter ke posisi awal (Kios / Kebun)
+    if savedCFrame and root and root.Parent then
         local lahans = getMyLahans()
         if State.AutoFarm and #lahans > 0 then
             root.CFrame = CFrame.new(lahans[1].Position + Vector3.new(0, 3.5, 0))
@@ -2354,6 +2411,7 @@ local function doExecuteCooking(specificRecipe)
         end
     end
 
+    isActionBusy = false
     return cookedSuccess
 end
 
@@ -2503,16 +2561,15 @@ local function autoCookLoop()
     if cookRunning then return end
     cookRunning = true
     task.spawn(function()
-        log("[Cook] Auto Cook dimulai (FastCook 2x: " .. tostring(State.FastCook) .. ")")
+        log("[Cook] Auto Cook dimulai (Cooldown cerdas 12s)")
         while State.AutoCook do
-            local loops = State.FastCook and 2 or 1
-            for _ = 1, loops do
+            if not isActionBusy then
                 pcall(function()
                     doExecuteCooking(State.FavCookTarget or "Semua")
                 end)
-                if State.FastCook then task.wait(0.2) end
             end
-            task.wait(State.FastCook and 0.8 or 2.5)
+            local waitTime = State.FastCook and 6 or 12
+            task.wait(waitTime)
         end
         cookRunning = false
         log("[Cook] Auto Cook berhenti")
@@ -2524,16 +2581,15 @@ local function autoCookFavLoop()
     if cookFavRunning then return end
     cookFavRunning = true
     task.spawn(function()
-        log("[CookFav] Auto Cook Favorit dimulai (FastCook 2x: " .. tostring(State.FastCook) .. ")")
+        log("[CookFav] Auto Cook Favorit dimulai (Cooldown cerdas 12s)")
         while State.AutoCookFav do
-            local loops = State.FastCook and 2 or 1
-            for _ = 1, loops do
+            if not isActionBusy then
                 pcall(function()
                     doExecuteCooking(State.FavCookTarget or "Semua")
                 end)
-                if State.FastCook then task.wait(0.2) end
             end
-            task.wait(State.FastCook and 0.8 or 3)
+            local waitTime = State.FastCook and 6 or 12
+            task.wait(waitTime)
         end
         cookFavRunning = false
         log("[CookFav] Auto Cook Favorit berhenti")
