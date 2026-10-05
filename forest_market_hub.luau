@@ -5996,6 +5996,7 @@ end)
 -- 1. TAB: KEBUN (🌾)
 -- ────────────────────────────────────────────────────────────────────────────
 local ParaKebun, ParaKios, ParaMasak, ParaTambang, ParaTangkap, ParaTernak, ParaSlotDetect, ddBoxes = nil, nil, nil, nil, nil, nil, nil, {}
+local function buildAllTabs()
 do
 local TabKebun = Window:Tab({ Title = "Kebun", Icon = "sprout" })
 
@@ -8492,6 +8493,8 @@ SecConfig:Button({
 
 -- ════════════════════════════════════════════════════════════════════════════
 end
+end -- buildAllTabs
+buildAllTabs()
 -- FLOATING MINIMIZE BUBBLE (DRAGGABLE TOGGLE)
 -- ════════════════════════════════════════════════════════════════════════════
 local UserInputService = UIS or game:GetService("UserInputService")
