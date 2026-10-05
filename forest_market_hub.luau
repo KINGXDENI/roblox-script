@@ -5637,9 +5637,7 @@ SecOlah:Button({
     Desc = "Memotong semua unggas & giling kopi yang ada di tas sekaligus",
     Callback = function() task.spawn(doAutoOlah) end
 })
-end
 
-do
 local SecSpeedBuy = TabDagang:Section({ Title = "Speedbuy Toko (Beli Cepat & Grosir)" })
 
 SecSpeedBuy:Dropdown({
