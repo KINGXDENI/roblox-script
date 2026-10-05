@@ -868,18 +868,31 @@ local function getKiosSlotStats()
                 end
             end
 
-            local isFull = (itemCount >= 9)
+            local lbl = slot:FindFirstChild("Label", true)
+            local tl = lbl and lbl:FindFirstChildWhichIsA("TextLabel", true)
+            if tl and tl.Text ~= "" then
+                local num = tl.Text:match("%[(%d+)%]")
+                if num then
+                    local n = tonumber(num)
+                    if n and n > itemCount then
+                        itemCount = n
+                    end
+                end
+            end
+
+            local isFull = (itemCount >= 10)
             if prompt then
                 local pKey = prompt:GetAttribute("LokAksiKey") or ""
                 local pFb = prompt:GetAttribute("LokAksiFallback") or ""
                 local pAct = prompt.ActionText or ""
-                if pKey == "rak.slot_penuh_item" or pFb:lower():find("penuh") or pAct:lower():find("penuh") or pAct:lower():find("full") then
+                local pObj = prompt.ObjectText or ""
+                if pKey == "rak.slot_penuh_item" or pFb:lower():find("penuh") 
+                   or pAct:lower():find("penuh") or pAct:lower():find("full")
+                   or pObj:lower():find("penuh") or pObj:lower():find("full") then
                     isFull = true
                 end
             end
-            local lbl = slot:FindFirstChild("Label", true)
-            local tl = lbl and lbl:FindFirstChildWhichIsA("TextLabel", true)
-            if tl and (tl.Text:find("%[9%]") or tl.Text:lower():find("full")) then
+            if tl and (tl.Text:lower():find("full") or tl.Text:find("%[10%]") or tl.Text:find("%[9%]")) then
                 isFull = true
             end
 
@@ -1562,6 +1575,48 @@ local function isItemMatchingPref(itemName, pref)
     return false
 end
 
+local function hasItemInBackpack(itemOrName)
+    if not itemOrName or itemOrName == "" or itemOrName == "Kosong" then return false end
+    local inNorm = itemOrName:lower():gsub("%s+", "")
+
+    for _, cont in ipairs({ LP.Character, LP:FindFirstChildOfClass("Backpack") or LP.Backpack }) do
+        if cont then
+            for _, t in ipairs(cont:GetChildren()) do
+                if t:IsA("Tool") and not isProtectedTool(t) then
+                    local nm = t.Name:lower()
+                    local itId = (t:GetAttribute("ItemId") or ""):lower()
+                    local count = t:GetAttribute("Count") or t:GetAttribute("Jumlah") or tonumber(nm:match("x(%d+)")) or 1
+
+                    if count > 0 then
+                        if itId ~= "" and (itId == inNorm or inNorm:find(itId) or itId:find(inNorm)) then
+                            return true
+                        end
+                        if nm:find(inNorm) or inNorm:find(nm:gsub("%s*x%d+", "")) then
+                            return true
+                        end
+                        if isItemMatchingPref(itemOrName, nm) or isItemMatchingPref(nm, itemOrName) then
+                            return true
+                        end
+                        if (inNorm:find("satay") or inNorm:find("sate")) and (nm:find("satay") or nm:find("sate")) then
+                            if (inNorm:find("crab") or inNorm:find("kepiting")) and (nm:find("crab") or nm:find("kepiting")) then
+                                return true
+                            elseif (inNorm:find("crow") or inNorm:find("gagak")) and (nm:find("crow") or nm:find("gagak")) then
+                                return true
+                            end
+                        end
+                        if (inNorm == "dupa" or inNorm == "kemenyan" or inNorm == "incense") and (nm:find("dupa") or nm:find("kemenyan") or nm:find("incense")) then
+                            if not nm:find("perak") and not nm:find("emas") and not nm:find("coffee") and not nm:find("kopi") then
+                                return true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function getPreferenceForSlot(slotIndex)
     local boxPref = State["KiosBox" .. slotIndex]
     local strat = State.KiosStrategy or "Otomatis (Semua Rak)"
@@ -1678,8 +1733,8 @@ local function doRestockViaRakAksi()
             -- B. Mode Otomatis
             elseif pref == "Otomatis" then
                 if currentItem and currentItem ~= "" then
-                    -- Sudah ada barang, top up hanya jika belum penuh
-                    if not isRackFull then
+                    -- Sudah ada barang, top up hanya jika belum penuh DAN tas memiliki stok barang tersebut
+                    if not isRackFull and hasItemInBackpack(currentItem) then
                         local res = nil
                         pcall(function()
                             res = rakAksi:InvokeServer("isi", slotName)
@@ -1765,19 +1820,17 @@ local function doRestockViaRakAksi()
 
                 elseif isMatch then
                     -- Barang di rak sudah sesuai dengan preferensi user
-                    -- Top up HANYA jika rak belum penuh dan ada stok barang di tas
-                    if not isRackFull then
-                        if desiredItemId then
-                            local res = nil
-                            pcall(function()
-                                res = rakAksi:InvokeServer("isi", slotName)
-                            end)
-                            if res and res.ok and (res.n or 0) > 0 then
-                                restockedCount = restockedCount + 1
-                                log(("[StallRack] Rak %s diisi ulang (+%d)"):format(slotName, res.n or 0))
-                            end
-                            task.wait(0.25)
+                    -- Top up HANYA jika rak belum penuh DAN tas memiliki stok barang tersebut
+                    if not isRackFull and hasItemInBackpack(currentItem) then
+                        local res = nil
+                        pcall(function()
+                            res = rakAksi:InvokeServer("isi", slotName)
+                        end)
+                        if res and res.ok and (res.n or 0) > 0 then
+                            restockedCount = restockedCount + 1
+                            log(("[StallRack] Rak %s diisi ulang (+%d)"):format(slotName, res.n or 0))
                         end
+                        task.wait(0.25)
                     end
 
                 else
@@ -1887,7 +1940,7 @@ local function autoDagangLoop()
                             if not pref:find("Jangan Isi") and not pref:find("Kosongkan") and not pref:find("Tunggu") and pref ~= "None" then
                                 local slotObj = sInfo.slot
                                 local currentItem = slotObj and slotObj:GetAttribute("Item")
-                                local isRackFull = sInfo.isFull or (sInfo.itemCount and sInfo.itemCount >= 9)
+                                local isRackFull = sInfo.isFull or (sInfo.itemCount and sInfo.itemCount >= 10)
                                 local isMatch = currentItem and currentItem ~= "" and isItemMatchingPref(currentItem, pref)
 
                                 if not currentItem or currentItem == "" then
@@ -1902,9 +1955,8 @@ local function autoDagangLoop()
                                     needStock = true
                                     break
                                 elseif not isRackFull then
-                                    -- Rak belum penuh: butuh top up hanya jika ada stok di tas
-                                    local prod = (pref == "Otomatis") and getBestKiosProduct() or findProductByPreference(pref)
-                                    if prod then
+                                    -- Rak belum penuh: butuh top up HANYA jika pemain memiliki stok barang tersebut di tas
+                                    if hasItemInBackpack(currentItem) then
                                         needStock = true
                                         break
                                     end
