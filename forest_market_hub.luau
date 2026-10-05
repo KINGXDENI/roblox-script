@@ -70,7 +70,8 @@ local State = {
     AutoOlahAyam    = false,
     AutoOlahKopi    = false,
 
-    -- Konfigurasi Khusus Box / Rak Dagangan (Slot 1 - 5)
+    -- Konfigurasi Khusus Box / Rak Dagangan (Slot 1 - 10 Seamless)
+    KiosStrategy    = "Otomatis (Semua Rak)", -- Seamless Strategy: "Otomatis (Semua Rak)", "Fokus Crab Satay", "Fokus Kopi Kemenyan", "Fokus Kentang", "Kustom Per-Rak"
     KiosBox1        = "Otomatis",
     KiosBox2        = "Otomatis",
     KiosBox3        = "Otomatis",
@@ -661,10 +662,10 @@ local function getKiosSlotStats()
     end
     stats.kiosFound = true
 
-    -- Scan semua child di myKios untuk mencari slot berapapun (slot1 s/d slot10+)
+    -- Scan semua objek di myKios untuk mencari slot berapapun (slot1 s/d slot10+)
     local highestSlot = 5
-    for _, child in ipairs(myKios:GetChildren()) do
-        local numStr = child.Name:match("^[Ss]lot(%d+)$") or child.Name:match("^[Rr]ak(%d+)$")
+    for _, child in ipairs(myKios:GetDescendants()) do
+        local numStr = child.Name:match("^[Ss]lot(%d+)$") or child.Name:match("^[Rr]ak(%d+)$") or child.Name:match("^[Pp][Ss]lot(%d+)$")
         if numStr then
             local n = tonumber(numStr)
             if n and n > highestSlot then
@@ -694,14 +695,18 @@ local function getKiosSlotStats()
         local slot = myKios:FindFirstChild("slot" .. i) 
             or myKios:FindFirstChild("Slot" .. i)
             or myKios:FindFirstChild("Rak" .. i)
+            or myKios:FindFirstChild("pSlot" .. i)
             or (slotsFolder and (slotsFolder:FindFirstChild("slot" .. i) or slotsFolder:FindFirstChild("Slot" .. i) or slotsFolder:FindFirstChild(tostring(i))))
+            or myKios:FindFirstChild("slot" .. i, true)
+            or myKios:FindFirstChild("Slot" .. i, true)
+            or myKios:FindFirstChild("Rak" .. i, true)
 
         if slot then
             if i > foundMaxSlot then
                 foundMaxSlot = i
             end
 
-            local prompt = slot:FindFirstChild("RakPrompt")
+            local prompt = slot:FindFirstChild("RakPrompt") or slot:FindFirstChild("Prompt", true)
             if not prompt then
                 for _, p in ipairs(slot:GetDescendants()) do
                     if p:IsA("ProximityPrompt") then
@@ -720,7 +725,7 @@ local function getKiosSlotStats()
             local stok = slot:FindFirstChild("Stok")
             local isOwned = false
 
-            -- Deteksi kepemilikan slot:
+            -- Deteksi kepemilikan slot secara presisi:
             local bp = slot:FindFirstChild("BukaPrompt", true) 
                 or slot:FindFirstChild("LockPrompt", true) 
                 or slot:FindFirstChild("UpgradePrompt", true)
@@ -730,11 +735,14 @@ local function getKiosSlotStats()
                 -- Ada prompt buka/beli slot, berarti slot ini BELUM dimiliki!
                 isOwned = false
             elseif prompt and prompt.Enabled then
+                -- Prompt restock aktif dan siap digunakan, slot pasti DIMILIKI!
                 isOwned = true
             elseif stok and #stok:GetChildren() > 0 then
+                -- Ada stok barang di rak, slot pasti DIMILIKI!
                 isOwned = true
-            elseif prompt then
-                isOwned = true
+            elseif prompt and not bp then
+                -- Slot dasar 1-5 di awal biasanya selalu dimiliki
+                isOwned = (i <= 5)
             end
 
             local itemCount = 0
@@ -1340,6 +1348,24 @@ end
 -- ════════════════════════════════════════════════════════════════════════════
 -- 2. AUTO DAGANG (KIOS)
 -- ════════════════════════════════════════════════════════════════════════════
+local function getPreferenceForSlot(slotIndex)
+    local strat = State.KiosStrategy or "Otomatis (Semua Rak)"
+    if strat == "Otomatis (Semua Rak)" or strat == "Otomatis Cuan Tertinggi" or strat == "Otomatis" then
+        return "Otomatis"
+    elseif strat:find("Crab Satay") or strat:find("Sate Kepiting") then
+        return "Crab Satay"
+    elseif strat:find("Kopi Kemenyan") or strat:find("Incense Coffee") then
+        return "Incense Coffee"
+    elseif strat:find("Kentang") then
+        return "Kentang"
+    elseif strat:find("Hasil Panen") then
+        return "Otomatis"
+    elseif strat:find("Kustom") then
+        return State["KiosBox" .. slotIndex] or "Otomatis"
+    end
+    return strat
+end
+
 local function stockKiosShelves()
     if isActionBusy then return end
     isActionBusy = true
@@ -1360,14 +1386,14 @@ local function stockKiosShelves()
 
     local excludeList = {}
     local stockedAny = false
-    -- Otomatis proses seluruh slot yang benar-benar DIMILIKI / TERBUKA
+    -- Otomatis proses seluruh slot yang benar-benar DIMILIKI / TERBUKA (Seamless)
     local maxLimit = slotStats.maxSlots or #slotStats.slots or 10
     for i = 1, maxLimit do
         local sInfo = slotStats.slots[i]
         if sInfo and sInfo.owned and sInfo.prompt and sInfo.prompt.Enabled then
             local stok = sInfo.stok
             if not stok or #stok:GetChildren() == 0 then
-                local pref = State["KiosBox" .. i] or "Otomatis"
+                local pref = getPreferenceForSlot(i)
                 if not pref:find("Jangan Isi") and not pref:find("Kosongkan") and not pref:find("Tunggu") and pref ~= "None" then
                     local product = findProductByPreference(pref, excludeList)
                     if product then
@@ -1383,7 +1409,7 @@ local function stockKiosShelves()
                         stockedAny = true
                     else
                         if pref ~= "Otomatis" and not State.KiosUseFallback then
-                            log(("[Kios] Rak %d (%s) kosong: Menunggu stok selesai dimasak."):format(i, pref))
+                            log(("[Kios] Rak %d (%s) kosong: Menunggu stok selesai dimasak/panen."):format(i, pref))
                         end
                     end
                 end
@@ -1411,7 +1437,7 @@ local function autoDagangLoop()
                     for i = 1, maxLimit do
                         local sInfo = slotStats.slots[i]
                         if sInfo and sInfo.owned and sInfo.prompt and sInfo.prompt.Enabled then
-                            local pref = State["KiosBox" .. i] or "Otomatis"
+                            local pref = getPreferenceForSlot(i)
                             if not pref:find("Jangan Isi") and not pref:find("Kosongkan") and not pref:find("Tunggu") and pref ~= "None" then
                                 local stok = sInfo.stok
                                 if not stok or #stok:GetChildren() == 0 then
@@ -4435,6 +4461,7 @@ local function saveConfig()
         MinCoinReserve  = State.MinCoinReserve,
         AutoDagang      = State.AutoDagang,
         FastBuyer       = State.FastBuyer,
+        KiosStrategy    = State.KiosStrategy,
         KiosBox1        = State.KiosBox1,
         KiosBox2        = State.KiosBox2,
         KiosBox3        = State.KiosBox3,
@@ -4637,7 +4664,7 @@ end)
 -- ────────────────────────────────────────────────────────────────────────────
 -- 1. TAB: KEBUN (🌾)
 -- ────────────────────────────────────────────────────────────────────────────
-local ParaKebun, ParaKios, ParaMasak, ParaTambang, ParaTangkap, ParaTernak, ParaSlotDetect
+local ParaKebun, ParaKios, ParaMasak, ParaTambang, ParaTangkap, ParaTernak, ParaSlotDetect, ddBoxes = nil, nil, nil, nil, nil, nil, nil, {}
 do
 local TabKebun = Window:Tab({ Title = "Kebun", Icon = "sprout" })
 
@@ -4805,14 +4832,35 @@ local KIOS_BOX_OPTIONS = {
     "Jangan Isi"
 }
 
-SecBoxConfig:Paragraph({
-    Title = "ℹ️ Konfigurasi Penjualan Rak Kios",
-    Desc = "Atur produk apa yang dijual di masing-masing dari ke-5 rak kios kamu.\nPilih 'Otomatis' untuk sistem memilihkan produk bernilai jual tertinggi, atau 'Jangan Isi' untuk membiarkan rak kosong."
+local KIOS_STRATEGIES = {
+    "Otomatis (Semua Rak)",
+    "Fokus Crab Satay (Semua Rak)",
+    "Fokus Kopi Kemenyan (Semua Rak)",
+    "Fokus Kentang (Semua Rak)",
+    "Fokus Hasil Panen Bebas (Semua Rak)",
+    "Kustom Manual Per-Rak (Gunakan Box 1 - 10 di Bawah)"
+}
+
+SecBoxConfig:Dropdown({
+    Title = "⚡ Strategi Dagang Utama (Seamless Auto-Adapt)",
+    Desc = "Otomatis rawat & restock seluruh rak yang dimiliki (5, 6, 8, 10 rak). Saat kios naik level/tambah rak, rak baru otomatis langsung terisi tanpa perlu ubah setting!",
+    Values = KIOS_STRATEGIES,
+    Value = State.KiosStrategy or "Otomatis (Semua Rak)",
+    Callback = function(v)
+        State.KiosStrategy = v
+        saveConfig()
+        log("Strategi Kios diset ke: " .. v)
+    end
 })
 
 ParaSlotDetect = SecBoxConfig:Paragraph({
     Title = "📦 Kapasitas: Memeriksa...",
     Desc = "Mendeteksi jumlah rak yang sudah dibuka/dibeli...",
+})
+
+SecBoxConfig:Paragraph({
+    Title = "⚙️ Pengaturan Manual Per-Rak (Opsional)",
+    Desc = "Digunakan jika kamu memilih mode 'Kustom Manual Per-Rak' di atas. Rak yang belum dibuka otomatis berlabel Terkunci.",
 })
 
 local ddBox1 = SecBoxConfig:Dropdown({
@@ -4924,6 +4972,8 @@ local ddBox10 = SecBoxConfig:Dropdown({
         log("Box 10 diset: " .. v)
     end
 })
+
+ddBoxes = { ddBox1, ddBox2, ddBox3, ddBox4, ddBox5, ddBox6, ddBox7, ddBox8, ddBox9, ddBox10 }
 
 local FALLBACK_OPTIONS = {
     "Jangan Isi (Tunggu Sampai Matang)",
@@ -6861,8 +6911,25 @@ task.spawn(function()
             if ParaSlotDetect then
                 pcall(function()
                     ParaSlotDetect:SetTitle("📦 Kapasitas: " .. slotStats.totalOwned .. " dari " .. maxLimit .. " Rak Dimiliki")
-                    ParaSlotDetect:SetDesc("Sistem otomatis mendeteksi semua rak aktif (Rak 1 - " .. slotStats.totalOwned .. "). Rak yang masih terkunci dilewati secara aman.")
+                    ParaSlotDetect:SetDesc("Strategi: " .. tostring(State.KiosStrategy or "Otomatis (Semua Rak)") .. " • Sistem otomatis mendeteksi & mengisi semua rak aktif secara seamless!")
                 end)
+            end
+            if ddBoxes and #ddBoxes > 0 then
+                for i = 1, 10 do
+                    local dd = ddBoxes[i]
+                    if dd and dd.SetTitle then
+                        pcall(function()
+                            local sInfo = slotStats.slots[i]
+                            local isUnlocked = (sInfo and sInfo.owned) or (i <= slotStats.totalOwned)
+                            if isUnlocked then
+                                local itName = (sInfo and sInfo.itemName and sInfo.itemName ~= "") and sInfo.itemName or "Kosong"
+                                dd:SetTitle(("Rak %d [Aktif • %s]"):format(i, itName))
+                            else
+                                dd:SetTitle(("Rak %d [🔒 Terkunci • Butuh Upgrade Kios]"):format(i))
+                            end
+                        end)
+                    end
+                end
             end
         else
             pcall(function()
