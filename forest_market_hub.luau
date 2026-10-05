@@ -5463,9 +5463,7 @@ SecKiosAuto:Toggle({
         if v then autoSellMarketLoop() end
     end
 })
-end
 
-do
 local SecBoxConfig = TabDagang:Section({ Title = "Pengaturan Produk per Box / Rak (Slot 1 - 10)" })
 
 local KIOS_BOX_OPTIONS = {
@@ -5601,9 +5599,7 @@ SecBoxConfig:Button({
         log("Semua 10 Box Kios telah direset ke 'Otomatis'!")
     end
 })
-end
 
-do
 local SecOlah = TabDagang:Section({ Title = "Meja Pengolahan (Batch Maks 100x)" })
 
 SecOlah:Toggle({
