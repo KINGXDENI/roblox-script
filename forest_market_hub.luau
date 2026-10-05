@@ -868,6 +868,21 @@ local function getKiosSlotStats()
                 end
             end
 
+            local isFull = (itemCount >= 9)
+            if prompt then
+                local pKey = prompt:GetAttribute("LokAksiKey") or ""
+                local pFb = prompt:GetAttribute("LokAksiFallback") or ""
+                local pAct = prompt.ActionText or ""
+                if pKey == "rak.slot_penuh_item" or pFb:lower():find("penuh") or pAct:lower():find("penuh") or pAct:lower():find("full") then
+                    isFull = true
+                end
+            end
+            local lbl = slot:FindFirstChild("Label", true)
+            local tl = lbl and lbl:FindFirstChildWhichIsA("TextLabel", true)
+            if tl and (tl.Text:find("%[9%]") or tl.Text:lower():find("full")) then
+                isFull = true
+            end
+
             if isOwned then
                 stats.totalOwned = stats.totalOwned + 1
             end
@@ -878,7 +893,8 @@ local function getKiosSlotStats()
                 prompt = prompt,
                 stok = stok,
                 itemName = itemName,
-                itemCount = itemCount
+                itemCount = itemCount,
+                isFull = isFull
             }
         else
             stats.slots[i] = {
@@ -1138,7 +1154,7 @@ local function findProductByPreference(pref, excludeList)
         elseif targetPref == "Incense Coffee" or targetPref == "Kopi Kemenyan" then
             return nm:find("coffee") or nm:find("kopi") or itId == "kopikemenyan"
         elseif targetPref == "Incense" or targetPref == "Dupa" or targetPref == "Kemenyan" then
-            return (nm:find("incense") or nm:find("dupa") or nm:find("kemenyan")) and not nm:find("coffee") and not nm:find("kopi")
+            return (nm:find("incense") or nm:find("dupa") or nm:find("kemenyan")) and not nm:find("coffee") and not nm:find("kopi") and not nm:find("perak") and not nm:find("emas") and not nm:find("burner") and not nm:find("pedupaan")
         elseif targetPref == "Sate Gagak" or targetPref == "Crow Satay" then
             return ((nm:find("satay") or nm:find("sate")) and (nm:find("gagak") or nm:find("crow"))) or itId == "sategagak"
         elseif targetPref == "Crow Meat" or targetPref == "Daging Gagak" then
@@ -1511,22 +1527,65 @@ end
 -- ════════════════════════════════════════════════════════════════════════════
 -- 2. AUTO DAGANG (KIOS)
 -- ════════════════════════════════════════════════════════════════════════════
-local function getPreferenceForSlot(slotIndex)
-    local strat = State.KiosStrategy or "Otomatis (Semua Rak)"
-    if strat == "Otomatis (Semua Rak)" or strat == "Otomatis Cuan Tertinggi" or strat == "Otomatis" then
-        return "Otomatis"
-    elseif strat:find("Crab Satay") or strat:find("Sate Kepiting") then
-        return "Crab Satay"
-    elseif strat:find("Kopi Kemenyan") or strat:find("Incense Coffee") then
-        return "Incense Coffee"
-    elseif strat:find("Kentang") then
-        return "Kentang"
-    elseif strat:find("Hasil Panen") then
-        return "Otomatis"
-    elseif strat:find("Kustom") then
-        return State["KiosBox" .. slotIndex] or "Otomatis"
+local function isItemMatchingPref(itemName, pref)
+    if not itemName or itemName == "" or not pref or pref == "" then return false end
+    if pref == "Otomatis" then return true end
+    local inNorm = itemName:lower():gsub("%s+", "")
+    local pNorm = pref:lower():gsub("%s+", "")
+    if inNorm == pNorm or inNorm:find(pNorm) or pNorm:find(inNorm) then
+        return true
     end
-    return strat
+    if (pref == "Sate Kepiting" or pref == "Crab Satay") and (inNorm:find("satay") or inNorm:find("sate") or inNorm == "satekepiting") then
+        return true
+    end
+    if (pref == "Kemenyan" or pref == "Dupa" or pref == "Incense") and (inNorm == "dupa" or inNorm == "kemenyan" or inNorm == "incense") then
+        return true
+    end
+    if (pref == "Kopi Kemenyan" or pref == "Incense Coffee") and (inNorm:find("kopi") or inNorm:find("coffee") or inNorm == "kopikemenyan") then
+        return true
+    end
+    if (pref == "Sate Gagak" or pref == "Crow Satay") and (inNorm:find("gagak") or inNorm == "sategagak") then
+        return true
+    end
+    if (pref == "Daging Gagak" or pref == "Crow Meat") and (inNorm:find("crowmeat") or inNorm:find("daginggagak")) then
+        return true
+    end
+    if (pref == "Kepiting Sungai" or pref == "River Crab") and (inNorm:find("crab") or inNorm:find("kepiting")) and not inNorm:find("sate") and not inNorm:find("satay") then
+        return true
+    end
+    if (pref == "Pisang Raja Rebus" or pref == "Pisang Rebus" or pref == "Boiled Raja Banana") and (inNorm:find("banana") or inNorm:find("pisang")) and (inNorm:find("rebus") or inNorm:find("raja")) then
+        return true
+    end
+    if (pref == "Jamur Rebus" or pref == "Boiled Mushroom") and (inNorm:find("jamur") or inNorm:find("mushroom")) and (inNorm:find("rebus") or inNorm:find("sup") or inNorm:find("soup")) then
+        return true
+    end
+    return false
+end
+
+local function getPreferenceForSlot(slotIndex)
+    local boxPref = State["KiosBox" .. slotIndex]
+    local strat = State.KiosStrategy or "Otomatis (Semua Rak)"
+
+    -- 1. Mode Fokus Global Seragam (jika sengaja dipilih user di strategi utama)
+    if strat:find("Fokus") then
+        if strat:find("Crab Satay") or strat:find("Sate Kepiting") then
+            return "Crab Satay"
+        elseif strat:find("Kopi Kemenyan") or strat:find("Incense Coffee") then
+            return "Incense Coffee"
+        elseif strat:find("Kentang") then
+            return "Kentang"
+        elseif strat:find("Hasil Panen") then
+            return "Otomatis"
+        end
+    end
+
+    -- 2. Jika rak ini memiliki pengaturan box spesifik selain "Otomatis", SELALU prioritaskan!
+    if boxPref and boxPref ~= "Otomatis" and boxPref ~= "" then
+        return boxPref
+    end
+
+    -- 3. Default: Otomatis
+    return "Otomatis"
 end
 
 local function findStallRackGui()
@@ -1602,8 +1661,9 @@ local function doRestockViaRakAksi()
             local pref = getPreferenceForSlot(i)
             local slotObj = sInfo.slot
             local currentItem = slotObj and slotObj:GetAttribute("Item")
+            local isRackFull = sInfo.isFull or (sInfo.itemCount and sInfo.itemCount >= 9)
 
-            -- A. Jika slot diset "Jangan Isi" / "Kosongkan"
+            -- A. Jika slot diset "Jangan Isi" / "Kosongkan" / "Tunggu"
             if pref:find("Jangan Isi") or pref:find("Kosongkan") or pref:find("Tunggu") or pref == "None" then
                 if currentItem and currentItem ~= "" then
                     pcall(function()
@@ -1614,17 +1674,21 @@ local function doRestockViaRakAksi()
                     end)
                     task.wait(0.25)
                 end
+
+            -- B. Mode Otomatis
             elseif pref == "Otomatis" then
-                -- B. Mode Otomatis
                 if currentItem and currentItem ~= "" then
-                    -- Sudah ada barang, cukup top up dengan "isi"
-                    local res = nil
-                    pcall(function()
-                        res = rakAksi:InvokeServer("isi", slotName)
-                    end)
-                    if res and res.ok and (res.n or 0) > 0 then
-                        restockedCount = restockedCount + 1
-                        log(("[StallRack] Rak %s diisi ulang (+%d)"):format(slotName, res.n or 0))
+                    -- Sudah ada barang, top up hanya jika belum penuh
+                    if not isRackFull then
+                        local res = nil
+                        pcall(function()
+                            res = rakAksi:InvokeServer("isi", slotName)
+                        end)
+                        if res and res.ok and (res.n or 0) > 0 then
+                            restockedCount = restockedCount + 1
+                            log(("[StallRack] Rak %s diisi ulang (+%d)"):format(slotName, res.n or 0))
+                        end
+                        task.wait(0.25)
                     end
                 else
                     -- Rak kosong, cari barang jualan terbaik dari tas
@@ -1658,56 +1722,66 @@ local function doRestockViaRakAksi()
                             restockedCount = restockedCount + 1
                             log(("[StallRack] Menaruh %s ke %s (+%d)"):format(targetItem, slotName, tRes.n or 0))
                         end
+                        task.wait(0.25)
                     end
                 end
-                task.wait(0.25)
+
+            -- C. Mode Spesifik / Kustom Per-Rak
             else
-                -- C. Mode Spesifik / Kustom Per-Rak
                 local prod = findProductByPreference(pref)
                 local desiredItemId = prod and (prod:GetAttribute("ItemId") or prod.Name)
+                local isMatch = currentItem and currentItem ~= "" and isItemMatchingPref(currentItem, pref)
 
-                local isDifferent = false
-                if currentItem and currentItem ~= "" then
-                    local cNorm = currentItem:lower():gsub("%s+", "")
-                    local pNorm = pref:lower():gsub("%s+", "")
+                if currentItem and currentItem ~= "" and not isMatch then
+                    -- Rak berisi barang yang TIDAK SESUAI (misal Jagung, padahal diset Sate Kepiting)
                     if desiredItemId then
-                        local dNorm = desiredItemId:lower():gsub("%s+", "")
-                        isDifferent = (cNorm ~= dNorm)
+                        -- Ada stok barang pilihan di tas -> ambil barang lama, taruh barang pilihan!
+                        log(("[StallRack] Menukar isi %s: %s -> %s"):format(slotName, tostring(currentItem), desiredItemId))
+                        pcall(function()
+                            rakAksi:InvokeServer("ambil", slotName)
+                        end)
+                        task.wait(0.25)
+                        local tRes = nil
+                        pcall(function()
+                            tRes = rakAksi:InvokeServer("taruh", slotName, desiredItemId)
+                        end)
+                        if tRes and tRes.ok then
+                            restockedCount = restockedCount + 1
+                            log(("[StallRack] Berhasil menaruh %s ke %s (+%d)"):format(desiredItemId, slotName, tRes.n or 0))
+                        end
+                        task.wait(0.25)
                     else
-                        isDifferent = not cNorm:find(pNorm) and not pNorm:find(cNorm)
+                        -- Stok barang pilihan di tas kosong:
+                        -- Kosongkan rak dari barang salah, agar rak bersih dan siap menerima masakan matang!
+                        -- JANGAN panggil 'isi' pada barang yang salah!
+                        pcall(function()
+                            local aRes = rakAksi:InvokeServer("ambil", slotName)
+                            if aRes and aRes.ok then
+                                log(("[StallRack] Mengosongkan %s dari %s karena menunggu masakan: %s"):format(slotName, tostring(currentItem), pref))
+                            end
+                        end)
+                        task.wait(0.25)
                     end
-                end
 
-                if isDifferent and desiredItemId then
-                    -- Rak berisi barang yang tidak sesuai dengan pilihan user, dan user punya stok barang yang dipilih!
-                    -- Ambil barang lama ke tas, lalu taruh barang baru!
-                    log(("[StallRack] Menukar isi %s: %s -> %s"):format(slotName, tostring(currentItem), desiredItemId))
-                    pcall(function()
-                        rakAksi:InvokeServer("ambil", slotName)
-                    end)
-                    task.wait(0.25)
-                    local tRes = nil
-                    pcall(function()
-                        tRes = rakAksi:InvokeServer("taruh", slotName, desiredItemId)
-                    end)
-                    if tRes and tRes.ok then
-                        restockedCount = restockedCount + 1
-                        log(("[StallRack] Berhasil menaruh %s ke %s (+%d)"):format(desiredItemId, slotName, tRes.n or 0))
+                elseif isMatch then
+                    -- Barang di rak sudah sesuai dengan preferensi user
+                    -- Top up HANYA jika rak belum penuh dan ada stok barang di tas
+                    if not isRackFull then
+                        if desiredItemId then
+                            local res = nil
+                            pcall(function()
+                                res = rakAksi:InvokeServer("isi", slotName)
+                            end)
+                            if res and res.ok and (res.n or 0) > 0 then
+                                restockedCount = restockedCount + 1
+                                log(("[StallRack] Rak %s diisi ulang (+%d)"):format(slotName, res.n or 0))
+                            end
+                            task.wait(0.25)
+                        end
                     end
-                    task.wait(0.25)
-                elseif currentItem and currentItem ~= "" then
-                    -- Barang di rak sudah sesuai dengan preferensi, cukup top up!
-                    local res = nil
-                    pcall(function()
-                        res = rakAksi:InvokeServer("isi", slotName)
-                    end)
-                    if res and res.ok and (res.n or 0) > 0 then
-                        restockedCount = restockedCount + 1
-                        log(("[StallRack] Rak %s diisi ulang (+%d)"):format(slotName, res.n or 0))
-                    end
-                    task.wait(0.25)
+
                 else
-                    -- Rak sedang kosong, taruh barang pilihan jika ada
+                    -- Rak sedang kosong
                     if desiredItemId then
                         local tRes = nil
                         pcall(function()
@@ -1717,8 +1791,8 @@ local function doRestockViaRakAksi()
                             restockedCount = restockedCount + 1
                             log(("[StallRack] Menaruh %s ke %s (+%d)"):format(desiredItemId, slotName, tRes.n or 0))
                         end
+                        task.wait(0.25)
                     end
-                    task.wait(0.25)
                 end
             end
         end
@@ -1735,7 +1809,7 @@ local function doRestockViaRakAksi()
             })
         end)
     else
-        log("[StallRack] Seluruh rak kios sudah terisi penuh (9/9).")
+        log("[StallRack] Pemeriksaan selesai: Seluruh rak sudah sesuai / penuh (9/9).")
     end
 
     return true
@@ -1811,11 +1885,29 @@ local function autoDagangLoop()
                         if sInfo and sInfo.owned then
                             local pref = getPreferenceForSlot(i)
                             if not pref:find("Jangan Isi") and not pref:find("Kosongkan") and not pref:find("Tunggu") and pref ~= "None" then
-                                local count = sInfo.itemCount or 0
-                                local stok = sInfo.stok
-                                if count < 9 or (not stok or #stok:GetChildren() == 0) then
+                                local slotObj = sInfo.slot
+                                local currentItem = slotObj and slotObj:GetAttribute("Item")
+                                local isRackFull = sInfo.isFull or (sInfo.itemCount and sInfo.itemCount >= 9)
+                                local isMatch = currentItem and currentItem ~= "" and isItemMatchingPref(currentItem, pref)
+
+                                if not currentItem or currentItem == "" then
+                                    -- Rak kosong: butuh restock hanya jika ada barang di tas yang cocok
+                                    local prod = (pref == "Otomatis") and getBestKiosProduct() or findProductByPreference(pref)
+                                    if prod then
+                                        needStock = true
+                                        break
+                                    end
+                                elseif not isMatch and pref ~= "Otomatis" then
+                                    -- Rak terisi barang salah: butuh diganti atau dikosongkan
                                     needStock = true
                                     break
+                                elseif not isRackFull then
+                                    -- Rak belum penuh: butuh top up hanya jika ada stok di tas
+                                    local prod = (pref == "Otomatis") and getBestKiosProduct() or findProductByPreference(pref)
+                                    if prod then
+                                        needStock = true
+                                        break
+                                    end
                                 end
                             end
                         end
@@ -1825,7 +1917,7 @@ local function autoDagangLoop()
                         pcall(stockKiosShelves)
                         task.wait(State.KiosRestockCooldown or 5)
                     else
-                        task.wait(6)
+                        task.wait(5)
                     end
                 end
             end
@@ -5521,7 +5613,8 @@ local KIOS_STRATEGIES = {
     "Fokus Hasil Panen Bebas (Semua Rak)"
 }
 
-SecBoxConfig:Dropdown({
+local ddKiosStrat = nil
+ddKiosStrat = SecBoxConfig:Dropdown({
     Title = "⚡ Strategi Dagang Utama (Seamless Auto-Adapt)",
     Desc = "Otomatis rawat & restock seluruh rak yang dimiliki (5, 6, 8, 10 rak). Saat kios naik level/tambah rak, rak baru otomatis langsung terisi tanpa perlu ubah setting!",
     Values = KIOS_STRATEGIES,
@@ -5550,6 +5643,10 @@ for i = 1, 10 do
         Value = State["KiosBox" .. i] or "Otomatis",
         Callback = function(v)
             State["KiosBox" .. i] = v
+            State.KiosStrategy = "Kustom Manual Per-Rak (Gunakan Box 1 - 10 di Bawah)"
+            if ddKiosStrat and ddKiosStrat.SetValue then
+                pcall(function() ddKiosStrat:SetValue("Kustom Manual Per-Rak (Gunakan Box 1 - 10 di Bawah)") end)
+            end
             saveConfig()
             log(("Box %d diset: %s"):format(i, v))
         end
