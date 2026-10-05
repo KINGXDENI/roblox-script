@@ -5929,6 +5929,8 @@ end
 -- ════════════════════════════════════════════════════════════════════════════
 -- WINDUI WINDOW INITIALIZATION
 -- ════════════════════════════════════════════════════════════════════════════
+
+local function startHubUI()
 local WindUI = nil
 do
     local windUiUrls = {
@@ -8967,3 +8969,6 @@ if State.AutoTradeBoardSnipe then
     task.spawn(autoTradeBoardSnipeLoop)
 end
 log("WindUI Edition V10.0 loaded successfully! (All automations respect initial State/Config)")
+
+end
+startHubUI()
