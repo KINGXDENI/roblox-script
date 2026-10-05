@@ -1119,41 +1119,68 @@ local function findProductByPreference(pref, excludeList)
             return false
         end
         local nm = t.Name:lower()
+        local itId = (t:GetAttribute("ItemId") or ""):lower()
+        local tp = targetPref:lower():gsub("%s+", "")
+
+        -- Direct match pada ItemId atau Name
+        if itId ~= "" and (itId == tp or itId:gsub("%s+", "") == tp) then
+            return true
+        end
 
         if targetPref == "Crab Satay" or targetPref == "Sate Kepiting" then
-            -- HARUS sate kepiting matang, BUKAN River Crab mentah!
-            return (nm:find("satay") or nm:find("sate")) and (nm:find("crab") or nm:find("kepiting") or not nm:find("crow"))
+            return (nm:find("satay") or nm:find("sate")) and (nm:find("crab") or nm:find("kepiting")) or itId == "satekepiting"
         elseif targetPref == "River Crab" or targetPref == "Kepiting Sungai" then
-            -- HARUS River Crab mentah, bukan sate
-            return nm:find("river crab") or (nm:find("crab") and not nm:find("satay") and not nm:find("sate"))
+            return (nm:find("river crab") or (nm:find("crab") and not nm:find("satay") and not nm:find("sate")) or (nm:find("kepiting") and not nm:find("sate"))) or itId == "kepitingsungai"
         elseif targetPref == "Incense Coffee" or targetPref == "Kopi Kemenyan" then
-            -- HARUS Kopi, BUKAN Incense / Dupa mentah!
-            return nm:find("coffee") or nm:find("kopi")
+            return nm:find("coffee") or nm:find("kopi") or itId == "kopikemenyan"
         elseif targetPref == "Incense" or targetPref == "Dupa" or targetPref == "Kemenyan" then
-            -- HARUS Incense mentah, bukan kopi
             return (nm:find("incense") or nm:find("dupa") or nm:find("kemenyan")) and not nm:find("coffee") and not nm:find("kopi")
         elseif targetPref == "Sate Gagak" or targetPref == "Crow Satay" then
-            return (nm:find("satay") or nm:find("sate")) and (nm:find("gagak") or nm:find("crow"))
+            return ((nm:find("satay") or nm:find("sate")) and (nm:find("gagak") or nm:find("crow"))) or itId == "sategagak"
         elseif targetPref == "Crow Meat" or targetPref == "Daging Gagak" then
-            return nm:find("crow meat") or (nm:find("daging") and nm:find("gagak"))
-        elseif targetPref == "Boiled Raja Banana" or targetPref == "Pisang Rebus" then
-            return nm:find("banana") or nm:find("pisang")
+            return nm:find("crow meat") or (nm:find("daging") and nm:find("gagak")) or itId == "daginggagak"
+        elseif targetPref == "Boiled Raja Banana" or targetPref == "Pisang Raja Rebus" or targetPref == "Pisang Rebus" then
+            return (nm:find("banana") or nm:find("pisang")) and (nm:find("rebus") or nm:find("raja")) or itId == "pisangrajarebus"
         elseif targetPref == "Jamur Rebus" or targetPref == "Boiled Mushroom" then
-            return (nm:find("jamur") or nm:find("mushroom")) and (nm:find("rebus") or nm:find("boiled") or nm:find("sup") or nm:find("soup"))
+            return (nm:find("jamur") or nm:find("mushroom")) and (nm:find("rebus") or nm:find("boiled") or nm:find("sup") or nm:find("soup")) or itId == "jamurrebus"
+        elseif targetPref == "Babi Guling" then
+            return nm:find("babi") or itId == "babiguling"
+        elseif targetPref == "Ayam Potong" then
+            return (nm:find("ayam") and nm:find("potong")) or itId == "ayampotong"
+        elseif targetPref == "Tumis Kamboja" then
+            return nm:find("kamboja") or itId == "tumiskamboja"
+        elseif targetPref == "Susu" then
+            return nm:find("susu") or nm:find("milk") or itId == "susu"
+        elseif targetPref == "Apel" then
+            return nm:find("apel") or nm:find("apple") or itId == "apel"
+        elseif targetPref == "Paprika" then
+            return nm:find("paprika") or itId == "paprika"
+        elseif targetPref == "Jeruk" then
+            return nm:find("jeruk") or nm:find("orange") or itId == "jeruk"
+        elseif targetPref == "Kubis" then
+            return nm:find("kubis") or nm:find("cabbage") or itId == "kubis"
+        elseif targetPref == "Telur" then
+            return nm:find("telur") or nm:find("egg") or itId == "telur"
+        elseif targetPref == "Pisang" then
+            return (nm:find("pisang") or nm:find("banana")) and not nm:find("rebus") or itId == "pisang"
+        elseif targetPref == "Terong" then
+            return nm:find("terong") or nm:find("eggplant") or itId == "terong"
+        elseif targetPref == "Melati" or targetPref == "Bunga Melati" then
+            return nm:find("melati") or nm:find("jasmine") or itId == "melati"
         elseif targetPref == "Tomat" then
             return nm:find("tomat") or nm:find("tomato")
         elseif targetPref == "Bawang" then
             return nm:find("bawang") or nm:find("onion")
         elseif targetPref == "Jagung" then
-            return nm:find("jagung") or nm:find("corn")
+            return nm:find("jagung") or nm:find("corn") or itId == "jagung"
         elseif targetPref == "Cabai" then
-            return nm:find("cabai") or nm:find("chili") or nm:find("cili") or nm:find("pepper")
+            return nm:find("cabai") or nm:find("chili") or nm:find("cili") or nm:find("pepper") or itId == "cabai"
         elseif targetPref == "Kentang" then
-            return nm:find("kentang") or nm:find("potato")
+            return nm:find("kentang") or nm:find("potato") or itId == "kentang"
         elseif targetPref == "Padi" then
             return nm:find("padi") or nm:find("rice")
         else
-            return nm:find(targetPref:lower()) ~= nil
+            return nm:find(targetPref:lower()) ~= nil or itId == tp
         end
     end
 
@@ -1569,31 +1596,42 @@ local function doRestockViaRakAksi()
         if sInfo and sInfo.owned then
             local slotName = "slot" .. i
             local pref = getPreferenceForSlot(i)
+            local slotObj = sInfo.slot
+            local currentItem = slotObj and slotObj:GetAttribute("Item")
 
-            if not pref:find("Jangan Isi") and not pref:find("Kosongkan") and not pref:find("Tunggu") and pref ~= "None" then
-                -- 1. Coba isi ulang slot jika sudah ada item yang terpasang
-                local res = nil
-                pcall(function()
-                    res = rakAksi:InvokeServer("isi", slotName)
-                end)
-
-                if res and res.ok then
-                    restockedCount = restockedCount + 1
-                    log(("[StallRack] Rak %s diisi ulang (+%d)"):format(slotName, res.n or 0))
-                elseif res and res.reason == "kosong" then
-                    -- 2. Slot masih kosong, cari item sesuai preferensi dari tas
-                    local targetItem = nil
-                    local prod = findProductByPreference(pref)
-                    if prod then
-                        targetItem = prod:GetAttribute("ItemId") or prod.Name
+            -- A. Jika slot diset "Jangan Isi" / "Kosongkan"
+            if pref:find("Jangan Isi") or pref:find("Kosongkan") or pref:find("Tunggu") or pref == "None" then
+                if currentItem and currentItem ~= "" then
+                    pcall(function()
+                        local res = rakAksi:InvokeServer("ambil", slotName)
+                        if res and res.ok then
+                            log(("[StallRack] Mengosongkan %s sesuai setting: %s"):format(slotName, pref))
+                        end
+                    end)
+                    task.wait(0.25)
+                end
+            elseif pref == "Otomatis" then
+                -- B. Mode Otomatis
+                if currentItem and currentItem ~= "" then
+                    -- Sudah ada barang, cukup top up dengan "isi"
+                    local res = nil
+                    pcall(function()
+                        res = rakAksi:InvokeServer("isi", slotName)
+                    end)
+                    if res and res.ok and (res.n or 0) > 0 then
+                        restockedCount = restockedCount + 1
+                        log(("[StallRack] Rak %s diisi ulang (+%d)"):format(slotName, res.n or 0))
                     end
+                else
+                    -- Rak kosong, cari barang jualan terbaik dari tas
+                    local prod = getBestKiosProduct()
+                    local targetItem = prod and (prod:GetAttribute("ItemId") or prod.Name)
 
-                    -- Fallback cari item apapun yang bisa dijual di tas
                     if not targetItem then
                         for _, container in ipairs({ LP:FindFirstChildOfClass("Backpack"), LP.Character }) do
                             if container then
                                 for _, tool in ipairs(container:GetChildren()) do
-                                    if tool:IsA("Tool") and tool:GetAttribute("ItemId") then
+                                    if tool:IsA("Tool") and tool:GetAttribute("ItemId") and not isProtectedTool(tool) then
                                         local itemId = tool:GetAttribute("ItemId")
                                         if itemId ~= "Incense" and itemId ~= "Dupa" and not itemId:lower():find("axe") and not itemId:lower():find("pick") then
                                             targetItem = itemId
@@ -1619,6 +1657,65 @@ local function doRestockViaRakAksi()
                     end
                 end
                 task.wait(0.25)
+            else
+                -- C. Mode Spesifik / Kustom Per-Rak
+                local prod = findProductByPreference(pref)
+                local desiredItemId = prod and (prod:GetAttribute("ItemId") or prod.Name)
+
+                local isDifferent = false
+                if currentItem and currentItem ~= "" then
+                    local cNorm = currentItem:lower():gsub("%s+", "")
+                    local pNorm = pref:lower():gsub("%s+", "")
+                    if desiredItemId then
+                        local dNorm = desiredItemId:lower():gsub("%s+", "")
+                        isDifferent = (cNorm ~= dNorm)
+                    else
+                        isDifferent = not cNorm:find(pNorm) and not pNorm:find(cNorm)
+                    end
+                end
+
+                if isDifferent and desiredItemId then
+                    -- Rak berisi barang yang tidak sesuai dengan pilihan user, dan user punya stok barang yang dipilih!
+                    -- Ambil barang lama ke tas, lalu taruh barang baru!
+                    log(("[StallRack] Menukar isi %s: %s -> %s"):format(slotName, tostring(currentItem), desiredItemId))
+                    pcall(function()
+                        rakAksi:InvokeServer("ambil", slotName)
+                    end)
+                    task.wait(0.25)
+                    local tRes = nil
+                    pcall(function()
+                        tRes = rakAksi:InvokeServer("taruh", slotName, desiredItemId)
+                    end)
+                    if tRes and tRes.ok then
+                        restockedCount = restockedCount + 1
+                        log(("[StallRack] Berhasil menaruh %s ke %s (+%d)"):format(desiredItemId, slotName, tRes.n or 0))
+                    end
+                    task.wait(0.25)
+                elseif currentItem and currentItem ~= "" then
+                    -- Barang di rak sudah sesuai dengan preferensi, cukup top up!
+                    local res = nil
+                    pcall(function()
+                        res = rakAksi:InvokeServer("isi", slotName)
+                    end)
+                    if res and res.ok and (res.n or 0) > 0 then
+                        restockedCount = restockedCount + 1
+                        log(("[StallRack] Rak %s diisi ulang (+%d)"):format(slotName, res.n or 0))
+                    end
+                    task.wait(0.25)
+                else
+                    -- Rak sedang kosong, taruh barang pilihan jika ada
+                    if desiredItemId then
+                        local tRes = nil
+                        pcall(function()
+                            tRes = rakAksi:InvokeServer("taruh", slotName, desiredItemId)
+                        end)
+                        if tRes and tRes.ok then
+                            restockedCount = restockedCount + 1
+                            log(("[StallRack] Menaruh %s ke %s (+%d)"):format(desiredItemId, slotName, tRes.n or 0))
+                        end
+                    end
+                    task.wait(0.25)
+                end
             end
         end
     end
@@ -5279,30 +5376,43 @@ local SecBoxConfig = TabDagang:Section({ Title = "Pengaturan Produk per Box / Ra
 
 local KIOS_BOX_OPTIONS = {
     "Otomatis",
-    "Crab Satay",
-    "Boiled Raja Banana",
-    "Incense Coffee",
-    "Jamur Rebus",
+    "Sate Kepiting",
+    "Kopi Kemenyan",
+    "Babi Guling",
+    "Ayam Potong",
+    "Pisang Raja Rebus",
+    "Tumis Kamboja",
+    "Susu",
+    "Apel",
+    "Paprika",
     "Sate Gagak",
-    "River Crab",
-    "Incense",
+    "Jeruk",
+    "Jamur Rebus",
+    "Kubis",
+    "Kepiting Sungai",
+    "Telur",
+    "Pisang",
+    "Kemenyan",
+    "Dupa",
+    "Terong",
+    "Melati",
+    "Cabai",
+    "Jagung",
+    "Kentang",
     "Crow Meat",
     "Tomat",
     "Bawang",
-    "Jagung",
-    "Cabai",
-    "Kentang",
     "Padi",
-    "Jangan Isi"
+    "Jangan Isi (Kosongkan)"
 }
 
 local KIOS_STRATEGIES = {
     "Otomatis (Semua Rak)",
+    "Kustom Manual Per-Rak (Gunakan Box 1 - 10 di Bawah)",
     "Fokus Crab Satay (Semua Rak)",
     "Fokus Kopi Kemenyan (Semua Rak)",
     "Fokus Kentang (Semua Rak)",
-    "Fokus Hasil Panen Bebas (Semua Rak)",
-    "Kustom Manual Per-Rak (Gunakan Box 1 - 10 di Bawah)"
+    "Fokus Hasil Panen Bebas (Semua Rak)"
 }
 
 SecBoxConfig:Dropdown({
