@@ -4495,15 +4495,14 @@ local function doMultiHarvestRace()
 end
 
 -- #6: ShopBuy Hidden Item Probe — coba beli item yang tidak tampil di UI tapi ada di database
-local HIDDEN_SHOP_IDS = {
-    "BibitLangka", "BibitEmas", "BibitMistis",
-    "MinyakJelangkungx10", "ArangKeramatx5", "SerpihArwah",
-    "KunciPeti", "TiketGaib", "BeliungBesi", "BeliungEmas",
-    "PupukAjaib", "EsensiGaib", "TanahSubur",
-    "VoucherKoin1000", "VoucherKoin5000",
-}
-
 local function probeHiddenShopItems()
+    local HIDDEN_SHOP_IDS = {
+        "BibitLangka", "BibitEmas", "BibitMistis",
+        "MinyakJelangkungx10", "ArangKeramatx5", "SerpihArwah",
+        "KunciPeti", "TiketGaib", "BeliungBesi", "BeliungEmas",
+        "PupukAjaib", "EsensiGaib", "TanahSubur",
+        "VoucherKoin1000", "VoucherKoin5000",
+    }
     local rem = getR("ShopBuy")
     if not rem then
         log("[Probe] ShopBuy tidak ditemukan")
@@ -4628,8 +4627,8 @@ local function doGuildBoostSnipe()
 end
 
 -- #8: Gerobak Skin Passive Swap — equip skin passive sebelum sell, unequip sesudah
-local PASSIVE_GEROBAK_SKINS = { "GerobakEmas", "GerobakMistis", "GerobakLangka", "SkinGerobakVIP" }
 local function doGerobakPassiveSwap(callback)
+    local PASSIVE_GEROBAK_SKINS = { "GerobakEmas", "GerobakMistis", "GerobakLangka", "SkinGerobakVIP" }
     local remEquip = getR("GerobakSkinEquip") or getR("EquipGerobak") or getR("GerobakEquip")
     local remUnequip = getR("GerobakSkinUnequip") or getR("UnequipGerobak")
 
@@ -4683,17 +4682,16 @@ end
 -- ════════════════════════════════════════════════════════════════════════════
 
 -- #9: RedeemCode Bruteforce — probe ratusan kombinasi kode dev otomatis
-local BRUTE_PREFIXES = {
-    "PASAR", "DUKUN", "HUTAN", "GAIB", "ARWAH", "TUYUL", "FOREST", "MARKET",
-    "PROMO", "FREE", "BONUS", "HADIAH", "GRATIS", "KOIN", "EVENT", "MALAM",
-    "PETI", "BABI", "AYAM", "TAMBANG", "LAHAN",
-}
-local BRUTE_SUFFIXES = {
-    "2024", "2025", "100", "500", "1000", "001", "01", "1",
-    "GRATISS", "FREE", "VIP", "LAUNCH", "UPDATE", "BARU", "GAME",
-}
-
 local function generateBruteCodes()
+    local BRUTE_PREFIXES = {
+        "PASAR", "DUKUN", "HUTAN", "GAIB", "ARWAH", "TUYUL", "FOREST", "MARKET",
+        "PROMO", "FREE", "BONUS", "HADIAH", "GRATIS", "KOIN", "EVENT", "MALAM",
+        "PETI", "BABI", "AYAM", "TAMBANG", "LAHAN",
+    }
+    local BRUTE_SUFFIXES = {
+        "2024", "2025", "100", "500", "1000", "001", "01", "1",
+        "GRATISS", "FREE", "VIP", "LAUNCH", "UPDATE", "BARU", "GAME",
+    }
     local codes = {}
     -- Prefix + angka 1-50
     for _, p in ipairs(BRUTE_PREFIXES) do
@@ -5183,75 +5181,109 @@ end
 -- ════════════════════════════════════════════════════════════════════════════
 -- AUTO-RECONNECT & REJOIN WATCHDOG
 -- ════════════════════════════════════════════════════════════════════════════
-local queue_on_teleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
-if queue_on_teleport then
+do
+    local queue_on_teleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
+    if queue_on_teleport then
+        pcall(function()
+            queue_on_teleport([[
+                task.wait(4)
+                pcall(function()
+                    local code = (readfile and isfile and isfile("d:\\EXECUTOR\\ROBLOX-MCP\\roblox-script\\forest_market_hub.luau") and readfile("d:\\EXECUTOR\\ROBLOX-MCP\\roblox-script\\forest_market_hub.luau")) or game:HttpGet("http://localhost:45678/forest_market_hub.luau")
+                    loadstring(code)()
+                end)
+            ]])
+        end)
+    end
+
+    local GuiService = game:GetService("GuiService")
+    local TeleportService = game:GetService("TeleportService")
     pcall(function()
-        queue_on_teleport([[
-            task.wait(4)
-            pcall(function()
-                local code = (readfile and isfile and isfile("d:\\EXECUTOR\\ROBLOX-MCP\\roblox-script\\forest_market_hub.luau") and readfile("d:\\EXECUTOR\\ROBLOX-MCP\\roblox-script\\forest_market_hub.luau")) or game:HttpGet("http://localhost:45678/forest_market_hub.luau")
-                loadstring(code)()
-            end)
-        ]])
+        GuiService.ErrorMessageChanged:Connect(function()
+            if State.AutoReconnect then
+                log("Terdeteksi disconnect! Auto-rejoining Pasar Hutan dalam 3 detik...")
+                task.wait(3)
+                pcall(function()
+                    TeleportService:Teleport(game.PlaceId, LP)
+                end)
+            end
+        end)
     end)
 end
-
-local GuiService = game:GetService("GuiService")
-local TeleportService = game:GetService("TeleportService")
-pcall(function()
-    GuiService.ErrorMessageChanged:Connect(function()
-        if State.AutoReconnect then
-            log("Terdeteksi disconnect! Auto-rejoining Pasar Hutan dalam 3 detik...")
-            task.wait(3)
-            pcall(function()
-                TeleportService:Teleport(game.PlaceId, LP)
-            end)
-        end
-    end)
-end)
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- CLEANUP PREVIOUS UI & BUBBLES
 -- ════════════════════════════════════════════════════════════════════════════
-local hui = gethui and gethui() or game:GetService("CoreGui")
-if hui then
-    for _, c in ipairs(hui:GetChildren()) do
-        if c.Name:find("WindUI") or c.Name:find("PasarHutan") then
-            pcall(function() c:Destroy() end)
+do
+    local hui = gethui and gethui() or game:GetService("CoreGui")
+    if hui then
+        for _, c in ipairs(hui:GetChildren()) do
+            if c.Name:find("WindUI") or c.Name:find("PasarHutan") then
+                pcall(function() c:Destroy() end)
+            end
         end
     end
+    if PG:FindFirstChild("PasarHutanHubV8") then pcall(function() PG.PasarHutanHubV8:Destroy() end) end
+    if PG:FindFirstChild("PasarHutanHubV9") then pcall(function() PG.PasarHutanHubV9:Destroy() end) end
+    if PG:FindFirstChild("PasarHutanWindUI") then pcall(function() PG.PasarHutanWindUI:Destroy() end) end
+    if PG:FindFirstChild("PasarHutanBubble") then pcall(function() PG.PasarHutanBubble:Destroy() end) end
+    if PG:FindFirstChild("FHubV7") then pcall(function() PG.FHubV7:Destroy() end) end
 end
-if PG:FindFirstChild("PasarHutanHubV8") then pcall(function() PG.PasarHutanHubV8:Destroy() end) end
-if PG:FindFirstChild("PasarHutanHubV9") then pcall(function() PG.PasarHutanHubV9:Destroy() end) end
-if PG:FindFirstChild("PasarHutanWindUI") then pcall(function() PG.PasarHutanWindUI:Destroy() end) end
-if PG:FindFirstChild("PasarHutanBubble") then pcall(function() PG.PasarHutanBubble:Destroy() end) end
-if PG:FindFirstChild("FHubV7") then pcall(function() PG.FHubV7:Destroy() end) end
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- WINDUI WINDOW INITIALIZATION
 -- ════════════════════════════════════════════════════════════════════════════
-local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+local WindUI = nil
+do
+    local windUiUrls = {
+        "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua",
+        "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua",
+        "https://cdn.jsdelivr.net/gh/Footagesus/WindUI@main/dist/main.lua",
+    }
 
-local UIService = game:GetService("UserInputService")
-local isMobile = UIService.TouchEnabled and not UIService.KeyboardEnabled
-local camera = Workspace.CurrentCamera
-local vpSize = camera and camera.ViewportSize or Vector2.new(1280, 720)
-local winWidth = math.clamp(math.floor(vpSize.X * 0.85), 340, 580)
-local winHeight = math.clamp(math.floor(vpSize.Y * 0.82), 280, 460)
-if isMobile or vpSize.X < 760 then
-    winWidth = math.clamp(math.floor(vpSize.X * 0.92), 310, 500)
-    winHeight = math.clamp(math.floor(vpSize.Y * 0.86), 250, 400)
+    for _, url in ipairs(windUiUrls) do
+        local ok, res = pcall(function()
+            local code = game:HttpGet(url)
+            if code and #code > 100 then
+                local fn = loadstring(code)
+                if fn then return fn() end
+            end
+            return nil
+        end)
+        if ok and res and type(res) == "table" and res.CreateWindow then
+            WindUI = res
+            break
+        end
+    end
 end
 
-local Window = WindUI:CreateWindow({
-    Title = "Forest Market Hub",
-    Icon = "trees",
-    Author = "by Project Dukun Helper",
-    Folder = "PasarHutanWindUI",
-    Size = UDim2.fromOffset(winWidth, winHeight),
-    Transparent = true,
-    Theme = "Dark",
-})
+if not WindUI then
+    warn("[Pasar Hutan Hub] Gagal memuat UI Library WindUI dari GitHub! Periksa koneksi internet executor.")
+    return
+end
+
+local Window = nil
+do
+    local UIService = game:GetService("UserInputService")
+    local isMobile = UIService.TouchEnabled and not UIService.KeyboardEnabled
+    local camera = Workspace.CurrentCamera
+    local vpSize = camera and camera.ViewportSize or Vector2.new(1280, 720)
+    local winWidth = math.clamp(math.floor(vpSize.X * 0.85), 340, 580)
+    local winHeight = math.clamp(math.floor(vpSize.Y * 0.82), 280, 460)
+    if isMobile or vpSize.X < 760 then
+        winWidth = math.clamp(math.floor(vpSize.X * 0.92), 310, 500)
+        winHeight = math.clamp(math.floor(vpSize.Y * 0.86), 250, 400)
+    end
+
+    Window = WindUI:CreateWindow({
+        Title = "Forest Market Hub",
+        Icon = "trees",
+        Author = "by Project Dukun Helper",
+        Folder = "PasarHutanWindUI",
+        Size = UDim2.fromOffset(winWidth, winHeight),
+        Transparent = true,
+        Theme = "Dark",
+    })
+end
 
 pcall(function()
     Window:EditOpenButton({
@@ -5377,8 +5409,8 @@ SecKebunBantu:Button({
 -- 2. TAB: DAGANG (🏪)
 -- ────────────────────────────────────────────────────────────────────────────
 end
-local TabDagang = Window:Tab({ Title = "Dagang", Icon = "store" })
 do
+local TabDagang = Window:Tab({ Title = "Dagang", Icon = "store" })
 local SecKiosStats = TabDagang:Section({ Title = "Status Rak Kios" })
 ParaKios = SecKiosStats:Paragraph({
     Title = "Rak Stall Kios",
@@ -6240,8 +6272,8 @@ SecExploitKandang:Button({
 -- 5.5 TAB: EXPLOIT LAB (🧪)
 -- ────────────────────────────────────────────────────────────────────────────
 end
-local TabExploit = Window:Tab({ Title = "Exploit Lab", Icon = "flask-conical" })
 do
+local TabExploit = Window:Tab({ Title = "Exploit Lab", Icon = "flask-conical" })
 local SecExploitNote = TabExploit:Section({ Title = "ℹ️ Bug Abuse Laboratory" })
 SecExploitNote:Paragraph({
     Title = "Cara Kerja",
@@ -6344,8 +6376,7 @@ SecGuild:Button({
         task.spawn(doGuildBoostSnipe)
     end
 })
-end
-do
+
 -- [Batch 2] Bruteforce, Mining, EXP Steal, Trade Snipe, Free Chest, Price Spoof
 
 local SecBrute = TabExploit:Section({ Title = "🔑 Redeem Code Bruteforce" })
@@ -6414,8 +6445,7 @@ SecSiramOrang:Button({
         task.spawn(doSiramLahanOrang)
     end
 })
-end
-do
+
 local SecTrade = TabExploit:Section({ Title = "🔄 TradeBoard Auto-Snipe" })
 
 SecTrade:Slider({
@@ -6598,8 +6628,8 @@ SecGacha:Button({
 -- 7. TAB: MENU GAME (📱)
 -- ────────────────────────────────────────────────────────────────────────────
 end
-local TabMenu = Window:Tab({ Title = "Menu GUI", Icon = "layout-grid" })
 do
+local TabMenu = Window:Tab({ Title = "Menu GUI", Icon = "layout-grid" })
 local SecMenuAction = TabMenu:Section({ Title = "Kontrol GUI Game" })
 SecMenuAction:Button({
     Title = "❌ TUTUP SEMUA MENU GAME YANG TERBUKA",
@@ -6657,9 +6687,7 @@ SecMenuOpen:Button({
     Title = "🔄 Buka Menu Trade Player",
     Callback = function() openGameGui("TradeGui", "Trade") end
 })
-end
 
-do
 local SecInspector = TabMenu:Section({ Title = "Player & Inventory Inspector" })
 
 local selectedTargetPlayer = LP.Name
@@ -6695,9 +6723,7 @@ SecInspector:Button({
         inspectPlayerInventory(selectedTargetPlayer)
     end
 })
-end
 
-do
 local SecQuests = TabMenu:Section({ Title = "Misi & Hadiah Quest Harian" })
 SecQuests:Toggle({
     Title = "Auto Claim Hadiah Quest (Harian & Mingguan)",
@@ -6889,7 +6915,6 @@ SecTpLoc:Button({
 end
 do
 local TabVisual = Window:Tab({ Title = "Visual ESP", Icon = "eye" })
-
 local SecEspItems = TabVisual:Section({ Title = "ESP Item Liar & Alam" })
 SecEspItems:Toggle({
     Title = "ESP Jamur, Melati & Kemenyan",
@@ -6972,7 +6997,6 @@ SecHUD:Toggle({
 end
 do
 local TabAFK = Window:Tab({ Title = "AFK & Anti-Lag", Icon = "globe" })
-
 local SecAFKPerf = TabAFK:Section({ Title = "Mode Hemat Performa & Anti-DC" })
 SecAFKPerf:Toggle({
     Title = "Potato Mode (Anti-Lag 80% FPS Boost)",
@@ -7068,13 +7092,13 @@ SecBoostSync:Button({
         end)
     end
 })
+end
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 12. TAB: SETTINGS & TEMA (🎨)
 -- ────────────────────────────────────────────────────────────────────────────
-end
-local TabSettings = Window:Tab({ Title = "Pengaturan", Icon = "settings" })
 do
+local TabSettings = Window:Tab({ Title = "Pengaturan", Icon = "settings" })
 local SecTheme = TabSettings:Section({ Title = "Tampilan & Tema WindUI" })
 
 local themeNames = {}
@@ -7104,9 +7128,7 @@ SecTheme:Toggle({
         pcall(function() WindUI:ToggleAcrylic(v) end)
     end
 })
-end
 
-do
 local SecConfig = TabSettings:Section({ Title = "📁 Manajemen Profil Config (Multi-Profile)" })
 
 local selectedProfileInput = configRegistry.activeProfile or "Default"
