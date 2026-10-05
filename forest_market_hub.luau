@@ -1,3 +1,14 @@
+-- ══ SINGLETON GUARD (CLEANUP OLD INSTANCES) ══
+if getgenv and getgenv()._ForestMarketCleanup then
+    pcall(getgenv()._ForestMarketCleanup)
+end
+local _scriptActive = true
+if getgenv then
+    getgenv()._ForestMarketCleanup = function()
+        _scriptActive = false
+    end
+end
+
 --[[
     ════════════════════════════════════════════════════════════════════════════
     PASAR HUTAN (FOREST MARKET) - WINDUI EDITION V10.0 ULTIMATE
@@ -230,52 +241,33 @@ local function safeFirePrompt(prompt)
     if targetPos then
         local dist = (root.Position - targetPos).Magnitude
         local maxDist = prompt.MaxActivationDistance or 8
-        if dist > (maxDist + 2) then
+        if dist > (maxDist - 1) then
             root.CFrame = CFrame.new(targetPos + Vector3.new(0, 1.2, 0))
-            task.wait(0.15)
+            task.wait(0.2)
         end
     end
 
-    -- Eksekusi ProximityPrompt dengan multi-metode (mendukung tombol E, Tab, maupun Touch/Tap)
+    local holdTime = (prompt.HoldDuration and prompt.HoldDuration > 0) and prompt.HoldDuration or 0
+
     -- Metode 1: fireproximityprompt bawaan executor
     if fireproximityprompt then
-        pcall(function() fireproximityprompt(prompt) end)
-        pcall(function() fireproximityprompt(prompt, 0) end)
-        pcall(function() fireproximityprompt(prompt, 1, true) end)
-    end
-
-    -- Metode 2: InputHoldBegin & InputHoldEnd engine Roblox
-    pcall(function()
-        if prompt.InputHoldBegin then
-            prompt:InputHoldBegin()
-            local holdTime = (prompt.HoldDuration and prompt.HoldDuration > 0) and (prompt.HoldDuration + 0.05) or 0.05
-            task.wait(holdTime)
-            prompt:InputHoldEnd()
-        end
-    end)
-
-    -- Metode 3: VirtualInputManager simulasi tombol resmi prompt (Tab / E)
-    pcall(function()
-        local VIM = game:GetService("VirtualInputManager")
-        local key = prompt.KeyboardKeyCode or Enum.KeyCode.E
-        VIM:SendKeyEvent(true, key, false, game)
-        local holdTime = (prompt.HoldDuration and prompt.HoldDuration > 0) and (prompt.HoldDuration + 0.05) or 0.05
-        task.wait(holdTime)
-        VIM:SendKeyEvent(false, key, false, game)
-    end)
-
-    -- Metode 4: Jika tombolnya spesifik Tab atau prompt ActionText mengandung kata Tab / Tap
-    local act = (prompt.ActionText or ""):lower()
-    if prompt.KeyboardKeyCode == Enum.KeyCode.Tab or act:find("tab") or act:find("tap") then
         pcall(function()
-            local VIM = game:GetService("VirtualInputManager")
-            VIM:SendKeyEvent(true, Enum.KeyCode.Tab, false, game)
-            task.wait(0.05)
-            VIM:SendKeyEvent(false, Enum.KeyCode.Tab, false, game)
+            fireproximityprompt(prompt, holdTime)
         end)
     end
 
-    -- Metode 5: Fallback jika parent memiliki ClickDetector
+    -- Metode 2: InputHoldBegin & InputHoldEnd jika prompt membutuhkan durasi tahan
+    if holdTime > 0 then
+        pcall(function()
+            if prompt.InputHoldBegin then
+                prompt:InputHoldBegin()
+                task.wait(holdTime + 0.1)
+                prompt:InputHoldEnd()
+            end
+        end)
+    end
+
+    -- Metode 3: Fallback ClickDetector jika parent memiliki ClickDetector
     pcall(function()
         local cd = parent:FindFirstChildWhichIsA("ClickDetector", true) or (parent.Parent and parent.Parent:FindFirstChildWhichIsA("ClickDetector"))
         if cd and fireclickdetector then
@@ -285,6 +277,28 @@ local function safeFirePrompt(prompt)
 
     return true
 end
+
+-- ══ AUTO-DISMISS BLOCKING POPUPS ══
+task.spawn(function()
+    while _scriptActive do
+        task.wait(3)
+        pcall(function()
+            local nrg = PG and PG:FindFirstChild("NightReportGui")
+            if nrg and nrg.Enabled then
+                local okBtn = nrg:FindFirstChild("OkButton", true)
+                if okBtn and getconnections then
+                    for _, c in ipairs(getconnections(okBtn.MouseButton1Click)) do c:Fire() end
+                    for _, c in ipairs(getconnections(okBtn.Activated)) do c:Fire() end
+                end
+                nrg.Enabled = false
+            end
+            local pdg = PG and PG:FindFirstChild("PusakaDramaGui")
+            if pdg and pdg.Enabled then
+                pdg.Enabled = false
+            end
+        end)
+    end
+end)
 
 -- ══ ANTI-AFK ══
 task.spawn(function()
@@ -3857,22 +3871,31 @@ local function autoForageLoop()
     if forageRunning then return end
     forageRunning = true
     task.spawn(function()
-        while State.AutoForage or State.AutoGagak or State.AutoTuyul do
+        while _scriptActive and (State.AutoForage or State.AutoGagak or State.AutoTuyul) do
+            if isActionBusy then
+                task.wait(1)
+                continue
+            end
             local root = getRoot()
             if not root then task.wait(1); continue end
 
             local targets = {}
-            for _, o in ipairs(Workspace:GetDescendants()) do
-                if o:IsA("ProximityPrompt") and o.Enabled then
-                    local act = (o.ActionText or ""):lower()
-                    local obj = (o.ObjectText or ""):lower()
+            local sb = Workspace:FindFirstChild("SpawnBahan")
+            local scanItems = sb and sb:GetChildren() or Workspace:GetDescendants()
+
+            for _, o in ipairs(scanItems) do
+                local p = o:IsA("ProximityPrompt") and o or o:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if p and p.Enabled then
+                    local act = (p.ActionText or ""):lower()
+                    local obj = (p.ObjectText or ""):lower()
                     local oName = o.Name:lower()
-                    local isForage = act:find("ambil") or act:find("petik") or act:find("pungut") or act:find("take") or act:find("pick") or act:find("harvest") or act:find("collect")
-                    local isGagak  = obj:find("gagak") or obj:find("crow") or act:find("tangkap") or act:find("catch")
+
+                    local isGagak  = obj:find("gagak") or obj:find("crow") or oName:find("gagak")
                     local isTuyul  = obj:find("tuyul") or oName:find("tuyul")
+                    local isForageHerb = oName:find("melati") or oName:find("jamur") or oName:find("kemenyan") or obj:find("jasmine") or obj:find("mushroom") or obj:find("frank")
 
                     local shouldPickup = false
-                    if State.AutoForage and isForage and not isGagak and not isTuyul then
+                    if State.AutoForage and isForageHerb then
                         shouldPickup = true
                     elseif State.AutoGagak and isGagak then
                         shouldPickup = true
@@ -3881,9 +3904,9 @@ local function autoForageLoop()
                     end
 
                     if shouldPickup then
-                        local part = o.Parent:IsA("BasePart") and o.Parent or (o.Parent:IsA("Attachment") and o.Parent.Parent:IsA("BasePart") and o.Parent.Parent or nil)
+                        local part = p.Parent:IsA("BasePart") and p.Parent or (o:IsA("BasePart") and o or o:FindFirstChildWhichIsA("BasePart", true))
                         if part then
-                            table.insert(targets, { prompt = o, part = part, obj = obj })
+                            table.insert(targets, { prompt = p, part = part, obj = obj })
                         end
                     end
                 end
@@ -3894,25 +3917,29 @@ local function autoForageLoop()
                     return (root.Position - a.part.Position).Magnitude < (root.Position - b.part.Position).Magnitude
                 end)
 
-                local oldPos = root.Position
-                for i = 1, math.min(10, #targets) do
-                    if not (State.AutoForage or State.AutoGagak or State.AutoTuyul) then break end
-                    local item = targets[i]
-                    if item.prompt and item.prompt.Enabled and item.part and item.part.Parent then
-                        root.CFrame = CFrame.new(item.part.Position + Vector3.new(0, 2, 0))
-                        local pDelay = State.ForagePickupDelay or 0.35
-                        task.wait(math.max(0.05, pDelay * 0.4))
-                        safeFirePrompt(item.prompt)
-                        task.wait(math.max(0.08, pDelay))
+                isActionBusy = true
+                pcall(function()
+                    local oldPos = root.Position
+                    for i = 1, math.min(5, #targets) do
+                        if not (_scriptActive and (State.AutoForage or State.AutoGagak or State.AutoTuyul)) then break end
+                        local item = targets[i]
+                        if item.prompt and item.prompt.Enabled and item.part and item.part.Parent then
+                            root.CFrame = CFrame.new(item.part.Position + Vector3.new(0, 1.2, 0))
+                            task.wait(0.25)
+                            safeFirePrompt(item.prompt)
+                            local holdWait = (item.prompt.HoldDuration and item.prompt.HoldDuration > 0) and (item.prompt.HoldDuration + 0.2) or 0.35
+                            task.wait(holdWait)
+                        end
                     end
-                end
 
-                local myLahans = getMyLahans()
-                if State.AutoFarm and #myLahans > 0 then
-                    root.CFrame = CFrame.new(myLahans[1].Position + Vector3.new(0, 3.5, 0))
-                else
-                    root.CFrame = CFrame.new(oldPos)
-                end
+                    local myLahans = getMyLahans()
+                    if State.AutoFarm and #myLahans > 0 then
+                        root.CFrame = CFrame.new(myLahans[1].Position + Vector3.new(0, 3.5, 0))
+                    else
+                        root.CFrame = CFrame.new(oldPos)
+                    end
+                end)
+                isActionBusy = false
             end
 
             task.wait(State.ForageLoopInterval or 3)
@@ -3993,9 +4020,11 @@ local function doSafeLoot(singleTargetName)
         elseif key == "gagak" or key == "crow" then
             return text:find("gagak") or text:find("crow")
         elseif key == "dupa" or key == "incense" then
-            return (text:find("dupa") or text:find("incense")) and not text:find("kemenyan") and not text:find("menyan") and not text:find("frank")
+            local isDupa = text:find("dupa") or (text:find("incense") and not text:find("frank"))
+            return isDupa and not text:find("kemenyan") and not text:find("menyan")
         elseif key == "kemenyan" or key == "menyan" or key == "frankincense" or key == "frank" then
-            return (text:find("kemenyan") or text:find("menyan") or text:find("frankincense") or text:find("frank")) and not text:find("silver") and not text:find("perak") and not text:find("dupa") and not text:find("incense")
+            local isKemenyan = text:find("kemenyan") or text:find("menyan") or text:find("frank")
+            return isKemenyan and not text:find("silver") and not text:find("perak") and not (text:find("dupa") and not text:find("kemenyan"))
         elseif key == "jamur" or key == "mushroom" then
             return text:find("jamur") or text:find("mushroom")
         elseif key == "melati" or key == "jasmine" then
@@ -4088,25 +4117,28 @@ local function doSafeLoot(singleTargetName)
     table.sort(candidates, function(a, b) return a.dist < b.dist end)
 
     isActionBusy = true
-    local oldPos = root.Position
-    local takeCount = singleTargetName and 1 or math.min(3, #candidates)
-    for i = 1, takeCount do
-        local target = candidates[i]
-        if target.prompt and target.prompt.Enabled and target.prompt.Parent then
-            root.CFrame = CFrame.new(target.part.Position + Vector3.new(0, 1.2, 0))
-            task.wait(0.2)
-            safeFirePrompt(target.prompt)
-            task.wait(0.35)
+    pcall(function()
+        local oldPos = root.Position
+        local takeCount = singleTargetName and 1 or math.min(3, #candidates)
+        for i = 1, takeCount do
+            local target = candidates[i]
+            if target and target.prompt and target.prompt.Enabled and target.prompt.Parent then
+                root.CFrame = CFrame.new(target.part.Position + Vector3.new(0, 1.2, 0))
+                task.wait(0.25)
+                safeFirePrompt(target.prompt)
+                local holdWait = (target.prompt.HoldDuration and target.prompt.HoldDuration > 0) and (target.prompt.HoldDuration + 0.2) or 0.35
+                task.wait(holdWait)
+            end
         end
-    end
 
-    local lahans = getMyLahans()
-    if State.AutoFarm and #lahans > 0 then
-        root.CFrame = CFrame.new(lahans[1].Position + Vector3.new(0, 3.5, 0))
-    else
-        root.CFrame = CFrame.new(oldPos)
-    end
-    task.wait(0.2)
+        local lahans = getMyLahans()
+        if State.AutoFarm and #lahans > 0 then
+            root.CFrame = CFrame.new(lahans[1].Position + Vector3.new(0, 3.5, 0))
+        else
+            root.CFrame = CFrame.new(oldPos)
+        end
+        task.wait(0.2)
+    end)
     isActionBusy = false
 end
 
