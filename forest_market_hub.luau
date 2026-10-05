@@ -1734,39 +1734,153 @@ local function autoSellBabiLoop()
     end)
 end
 
-local function pressGuiButton(btn)
-    if not btn or not btn:IsA("GuiButton") then return false end
+local function clickGuiElement(element)
+    if not element then return false end
+    local btn = element
+    if not btn:IsA("GuiButton") then
+        btn = element:FindFirstAncestorOfClass("GuiButton") or element:FindFirstChildOfClass("GuiButton")
+    end
+    if not btn then
+        btn = element
+    end
+
+    -- 1. firesignal bawaan executor (TouchTap, Activated, MouseButton1Click, Down, Up)
     pcall(function()
         if firesignal then
-            firesignal(btn.Activated)
-            firesignal(btn.MouseButton1Click)
-            firesignal(btn.MouseButton1Down)
-            firesignal(btn.MouseButton1Up)
+            if btn:IsA("GuiButton") and btn.TouchTap then firesignal(btn.TouchTap) end
+            if btn:IsA("GuiButton") and btn.Activated then firesignal(btn.Activated) end
+            if btn:IsA("GuiButton") and btn.MouseButton1Click then firesignal(btn.MouseButton1Click) end
+            if btn:IsA("GuiButton") and btn.MouseButton1Down then firesignal(btn.MouseButton1Down) end
+            if btn:IsA("GuiButton") and btn.MouseButton1Up then firesignal(btn.MouseButton1Up) end
         end
     end)
+
+    -- 2. getconnections (Mendukung event TouchTap & Activated di mobile executor seperti Delta/Codex)
     pcall(function()
-        if getconnections then
-            for _, conn in ipairs(getconnections(btn.Activated)) do
-                if conn.Fire then conn:Fire() elseif conn.fire then conn:fire() end
+        if getconnections and btn:IsA("GuiButton") then
+            if btn.TouchTap then
+                for _, conn in ipairs(getconnections(btn.TouchTap)) do
+                    if conn.Fire then conn:Fire() elseif conn.fire then conn:fire() end
+                end
             end
-            for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
-                if conn.Fire then conn:Fire() elseif conn.fire then conn:fire() end
+            if btn.Activated then
+                for _, conn in ipairs(getconnections(btn.Activated)) do
+                    if conn.Fire then conn:Fire() elseif conn.fire then conn:fire() end
+                end
+            end
+            if btn.MouseButton1Click then
+                for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
+                    if conn.Fire then conn:Fire() elseif conn.fire then conn:fire() end
+                end
             end
         end
     end)
+
+    -- 3. VirtualInputManager Touch Tap & Mouse Click (Koordinat tengah elemen)
+    pcall(function()
+        local VIM = game:GetService("VirtualInputManager")
+        if VIM and btn:IsA("GuiObject") then
+            local absPos = btn.AbsolutePosition
+            local absSize = btn.AbsoluteSize
+            local cx = absPos.X + (absSize.X / 2)
+            local cy = absPos.Y + (absSize.Y / 2)
+            if VIM.SendTouchEvent then
+                VIM:SendTouchEvent(0, 0, cx, cy)
+                task.wait(0.02)
+                VIM:SendTouchEvent(0, 2, cx, cy)
+            end
+            VIM:SendMouseButtonEvent(cx, cy, 0, true, game, 0)
+            task.wait(0.02)
+            VIM:SendMouseButtonEvent(cx, cy, 0, false, game, 0)
+        end
+    end)
+
+    -- 4. VirtualUser fallback
+    pcall(function()
+        local VU = game:GetService("VirtualUser")
+        if VU and btn:IsA("GuiObject") then
+            local absPos = btn.AbsolutePosition
+            local absSize = btn.AbsoluteSize
+            VU:ClickButton1(Vector2.new(absPos.X + absSize.X / 2, absPos.Y + absSize.Y / 2))
+        end
+    end)
+
     return true
 end
 
-local function findKompor()
-    local myKios = Workspace:FindFirstChild("KiosAktif") and Workspace.KiosAktif:FindFirstChild("Kios_" .. LP.Name)
-    if myKios then
-        local p = myKios:FindFirstChild("pKompor") or myKios:FindFirstChild("Kompor")
-        if p then return p end
+local function pressGuiButton(btn)
+    return clickGuiElement(btn)
+end
+
+local function getKomporPos(obj)
+    if not obj then return nil end
+    if obj:IsA("BasePart") then
+        return obj.Position
+    elseif obj:IsA("Attachment") then
+        return obj.WorldPosition
+    elseif obj:IsA("Model") then
+        return obj:GetPivot().Position
+    elseif obj:IsA("ProximityPrompt") and obj.Parent then
+        local p = obj.Parent
+        if p:IsA("BasePart") then return p.Position
+        elseif p:IsA("Attachment") then return p.WorldPosition
+        elseif p:IsA("Model") then return p:GetPivot().Position end
     end
+    return nil
+end
+
+local function findKompor()
+    local myKios = getMyKios()
+    if myKios then
+        -- 1. Cari part/model spesifik kompor / stove di kios player
+        for _, name in ipairs({"pKompor", "Kompor", "pStove", "Stove", "Kitchen", "Dapur", "CookingTable"}) do
+            local obj = myKios:FindFirstChild(name, true)
+            if obj then return obj end
+        end
+        -- 2. Scan descendants myKios untuk nama kompor / stove
+        for _, desc in ipairs(myKios:GetDescendants()) do
+            local nm = desc.Name:lower()
+            if (desc:IsA("BasePart") or desc:IsA("Model")) and (nm:find("kompor") or nm:find("stove") or nm:find("dapur") or nm == "cooking") then
+                return desc
+            end
+        end
+        -- 3. Cari ProximityPrompt di myKios yang teksnya berhubungan dengan memasak/cook
+        for _, p in ipairs(myKios:GetDescendants()) do
+            if p:IsA("ProximityPrompt") then
+                local at = (p.ActionText or ""):lower()
+                local ot = (p.ObjectText or ""):lower()
+                local pn = p.Name:lower()
+                if at:find("masak") or at:find("cook") or ot:find("kompor") or ot:find("stove") or pn:find("kompor") or pn:find("stove") then
+                    return p.Parent or p
+                end
+            end
+        end
+    end
+
+    -- Fallback Workspace
     for _, desc in ipairs(Workspace:GetDescendants()) do
-        if desc:IsA("BasePart") and (desc.Name == "pKompor" or desc.Name == "Kompor") then
+        if desc:IsA("ProximityPrompt") then
+            local at = (desc.ActionText or ""):lower()
+            local ot = (desc.ObjectText or ""):lower()
+            if at:find("masak") or at:find("cook") or ot:find("kompor") or ot:find("stove") then
+                return desc.Parent or desc
+            end
+        elseif (desc:IsA("BasePart") or desc:IsA("Model")) and (desc.Name == "pKompor" or desc.Name == "Kompor" or desc.Name == "pStove" or desc.Name == "Stove") then
             return desc
         end
+    end
+    return nil
+end
+
+local function getCookingPrompt()
+    local kompor = findKompor()
+    if not kompor then return nil end
+    if kompor:IsA("ProximityPrompt") then return kompor end
+    local p = kompor:FindFirstChildOfClass("ProximityPrompt") or kompor:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if p then return p end
+    if kompor.Parent then
+        p = kompor.Parent:FindFirstChildOfClass("ProximityPrompt") or kompor.Parent:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if p then return p end
     end
     return nil
 end
@@ -1793,7 +1907,7 @@ end
 local function findCookingGui()
     for _, name in ipairs({"CookingGui", "Cooking", "MemasakGui", "CookGui", "DapurGui", "Dapur", "CookingUI", "StoveGui"}) do
         local g = PG:FindFirstChild(name)
-        if g and (g.Enabled or (g:IsA("ScreenGui") and g.Enabled ~= false)) then
+        if g and g:IsA("ScreenGui") and g.Enabled then
             return g
         end
     end
@@ -1810,35 +1924,6 @@ local function findCookingGui()
         end
     end
     return nil
-end
-
-local function clickGuiElement(element)
-    if not element then return false end
-    local btn = element
-    if not btn:IsA("GuiButton") then
-        btn = element:FindFirstAncestorOfClass("GuiButton") or element:FindFirstChildOfClass("GuiButton")
-    end
-    if not btn then return false end
-
-    pcall(function()
-        if firesignal then
-            firesignal(btn.Activated)
-            firesignal(btn.MouseButton1Click)
-            firesignal(btn.MouseButton1Down)
-            firesignal(btn.MouseButton1Up)
-        end
-    end)
-    pcall(function()
-        if getconnections then
-            for _, conn in ipairs(getconnections(btn.Activated)) do
-                if conn.Fire then conn:Fire() elseif conn.fire then conn:fire() end
-            end
-            for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
-                if conn.Fire then conn:Fire() elseif conn.fire then conn:fire() end
-            end
-        end
-    end)
-    return true
 end
 
 -- ══ ANTI-VOID SAFEGUARD ══
@@ -1859,30 +1944,40 @@ task.spawn(function()
 end)
 
 local function doExecuteCooking(specificRecipe)
-    -- 1. Buka / cari GUI Cooking (tanpa teleport yang melempar karakter)
-    local cGui = findCookingGui()
-    if not cGui then
-        openGameGui("MemasakGui")
-        openGameGui("CookingGui")
-        openGameGui("Cooking")
-        task.wait(0.2)
-        cGui = findCookingGui()
-    end
+    local root = getRoot()
+    if not root then return false end
 
-    -- 2. Jika belum terbuka, gunakan prompt kompor HANYA jika pemain memang sudah berada dekat (< 12 stud)
+    -- 1. Buka / cari GUI Cooking yang sedang aktif
+    local cGui = findCookingGui()
+    local savedCFrame = nil
+
+    -- 2. Jika GUI belum terbuka, dekati kompor & picu prompt kompor secara otomatis (Support Mobile)
     if not cGui then
         local kompor = findKompor()
-        local root = getRoot()
-        if kompor and root then
-            local dist = (root.Position - kompor.Position).Magnitude
-            if dist <= 12 then
-                local prompt = kompor:FindFirstChildOfClass("ProximityPrompt") or kompor:FindFirstChild("Prompt", true)
-                if prompt and prompt.Enabled then
-                    safeFirePrompt(prompt)
-                    task.wait(0.15)
-                    cGui = findCookingGui()
-                end
+        local prompt = getCookingPrompt()
+        local kPos = getKomporPos(prompt or kompor)
+
+        if kPos and root then
+            local dist = (root.Position - kPos).Magnitude
+            if dist > 8 then
+                savedCFrame = root.CFrame
+                root.CFrame = CFrame.new(kPos + Vector3.new(0, 1.8, 1.8), kPos)
+                task.wait(0.25)
             end
+
+            if prompt and prompt.Enabled then
+                safeFirePrompt(prompt)
+                task.wait(0.3)
+            end
+        end
+
+        cGui = findCookingGui()
+        if not cGui then
+            openGameGui("MemasakGui")
+            openGameGui("CookingGui")
+            openGameGui("Cooking")
+            task.wait(0.2)
+            cGui = findCookingGui()
         end
     end
 
@@ -1891,13 +1986,15 @@ local function doExecuteCooking(specificRecipe)
     -- 3. Klaim masakan selesai di Queue terlebih dahulu
     if cGui then
         for _, d in ipairs(cGui:GetDescendants()) do
-            if d:IsA("TextLabel") or d:IsA("TextButton") then
-                local txt = d.Text:lower()
-                if txt:find("claim") or txt:find("collect") or txt:find("ambil") or txt:find("take") or txt:find("selesai") then
+            if (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("ImageButton")) and d.Visible then
+                local txt = (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Text:lower() or ""
+                local nm = d.Name:lower()
+                if txt:find("claim") or txt:find("collect") or txt:find("ambil") or txt:find("take") or txt:find("selesai")
+                    or txt:find("ready") or txt:find("done") or txt == "00:00" or txt == "0:00" or nm:find("claim") or nm:find("collect") then
                     if clickGuiElement(d) then
                         cookedSuccess = true
-                        log("[Cook] Klaim masakan matang di Queue!")
-                        task.wait(0.15)
+                        log("[Cook] Klaim masakan matang di Queue: " .. (txt ~= "" and txt or nm))
+                        task.wait(0.2)
                     end
                 end
             end
@@ -1905,37 +2002,65 @@ local function doExecuteCooking(specificRecipe)
 
         -- 4. Cari dan klik tombol 'Cook' atau 'Masak' pada Recipe List
         for _, d in ipairs(cGui:GetDescendants()) do
+            local isCookBtn = false
+            local btnTarget = nil
+
             if (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Visible then
                 local txt = d.Text:lower():gsub("%s+", "")
                 if txt == "cook" or txt == "masak" then
-                    local card = d:FindFirstAncestorWhichIsA("GuiObject")
-                    local cardText = ""
-                    if card then
-                        for _, cd in ipairs(card:GetDescendants()) do
-                            if cd:IsA("TextLabel") and cd ~= d then
-                                cardText = cardText .. " " .. cd.Text:lower()
+                    isCookBtn = true
+                    btnTarget = d
+                end
+            elseif (d:IsA("ImageButton") or d:IsA("GuiButton")) and d.Visible then
+                local nm = d.Name:lower()
+                if nm == "cook" or nm == "cookbutton" or nm == "btncook" or nm == "masak" then
+                    isCookBtn = true
+                    btnTarget = d
+                end
+            end
+
+            if isCookBtn and btnTarget then
+                -- Telusuri container resep ke atas untuk membaca nama resep
+                local cardText = ""
+                local curr = btnTarget.Parent
+                local depth = 0
+                while curr and curr ~= cGui and depth < 6 and curr:IsA("GuiObject") do
+                    local texts = {}
+                    for _, cd in ipairs(curr:GetDescendants()) do
+                        if cd:IsA("TextLabel") and cd ~= btnTarget and cd.Visible and cd.Text ~= "" then
+                            local tLow = cd.Text:lower():gsub("%s+", "")
+                            if tLow ~= "cook" and tLow ~= "masak" then
+                                table.insert(texts, cd.Text:lower())
                             end
                         end
                     end
-
-                    local matchesTarget = true
-                    if specificRecipe and specificRecipe ~= "Semua" then
-                        matchesTarget = cardText:find(specificRecipe:lower()) ~= nil
+                    if #texts > 0 then
+                        cardText = table.concat(texts, " ")
+                        break
                     end
+                    curr = curr.Parent
+                    depth = depth + 1
+                end
 
-                    if matchesTarget then
-                        if clickGuiElement(d) then
-                            cookedSuccess = true
-                            log("[Cook] Klik Cook pada: " .. (cardText ~= "" and cardText:sub(1, 25) or "Resep"))
-                            task.wait(0.15)
-                        end
+                local matchesTarget = true
+                if specificRecipe and specificRecipe ~= "Semua" then
+                    local targetLow = specificRecipe:lower():gsub("%s+", "")
+                    local cardClean = cardText:lower():gsub("%s+", "")
+                    matchesTarget = (cardClean:find(targetLow) ~= nil)
+                end
+
+                if matchesTarget then
+                    if clickGuiElement(btnTarget) then
+                        cookedSuccess = true
+                        log("[Cook] Klik Cook pada: " .. (cardText ~= "" and cardText:sub(1, 30) or "Resep"))
+                        task.wait(0.25)
                     end
                 end
             end
         end
     end
 
-    -- 5. Fallback Remote
+    -- 5. Fallback Remote jika didukung server
     local cookRemotes = {
         getR("CookStove"),
         getR("Masak"),
@@ -1956,11 +2081,29 @@ local function doExecuteCooking(specificRecipe)
         end
     end
 
+    -- 6. Kembalikan posisi karakter jika tadi berpindah dari tempat jauh (misal sedang AutoFarm)
+    if savedCFrame then
+        local lahans = getMyLahans()
+        if State.AutoFarm and #lahans > 0 then
+            root.CFrame = CFrame.new(lahans[1].Position + Vector3.new(0, 3.5, 0))
+        else
+            root.CFrame = savedCFrame
+        end
+    end
+
     return cookedSuccess
 end
 
 local function debugScanMemasakGui()
     local cGui = findCookingGui()
+    if not cGui then
+        local prompt = getCookingPrompt()
+        if prompt and prompt.Enabled then
+            safeFirePrompt(prompt)
+            task.wait(0.35)
+            cGui = findCookingGui()
+        end
+    end
     if not cGui then
         openGameGui("MemasakGui")
         openGameGui("CookingGui")
