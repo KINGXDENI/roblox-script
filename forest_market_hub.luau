@@ -1062,8 +1062,8 @@ local function isProtectedTool(t)
     if t:GetAttribute("IsSeed") or nm:find("bibit") or nm:find("seed") then return true end
     -- Alat tambang, cangkul, beliung, alat tebang, alat masak
     if t:GetAttribute("AlatTambang") or nm:find("beliung") or nm:find("pickaxe") or nm:find("cangkul") or nm:find("axe") or nm:find("kapak") or nm:find("pancing") then return true end
-    -- Perlengkapan Kios / Pedupaan khusus / Silver Frankincense / Burner / Tempat Dupa
-    if nm:find("frankincense") or nm:find("burner") or nm:find("pedupaan") or nm:find("censer") or nm:find("altar") then return true end
+    -- Perlengkapan Kios / Pedupaan khusus / Silver Frankincense / Burner / Tempat Dupa (CATATAN: Frankincense biasa adalah Kemenyan liar, JANGAN diproteksi!)
+    if nm:find("silver frankincense") or nm:find("kemenyan perak") or nm:find("burner") or nm:find("pedupaan") or nm:find("censer") or nm:find("altar") then return true end
     -- Pusaka / Lencana / Gamepass Item
     if nm:find("pusaka") or nm:find("relic") or nm:find("lencana") or nm:find("badge") then return true end
     return false
@@ -1101,7 +1101,7 @@ local function getBestKiosProduct(excludeList)
                         or t:GetAttribute("IsFood") == true
 
                     -- Pastikan BUKAN bahan mentah!
-                    if nm:find("river crab") or nm:find("incense") or nm:find("dupa") or nm:find("kemenyan") or nm:find("crow meat") then
+                    if nm:find("river crab") or nm:find("incense") or nm:find("dupa") or nm:find("kemenyan") or nm:find("menyan") or nm:find("frankincense") or nm:find("crow meat") then
                         isCookedFood = false
                     end
 
@@ -1174,10 +1174,12 @@ local function findProductByPreference(pref, excludeList)
             return (nm:find("satay") or nm:find("sate")) and (nm:find("crab") or nm:find("kepiting")) or itId == "satekepiting"
         elseif targetPref == "River Crab" or targetPref == "Kepiting Sungai" then
             return (nm:find("river crab") or (nm:find("crab") and not nm:find("satay") and not nm:find("sate")) or (nm:find("kepiting") and not nm:find("sate"))) or itId == "kepitingsungai"
-        elseif targetPref == "Incense Coffee" or targetPref == "Kopi Kemenyan" then
+        elseif targetPref == "Kopi Kemenyan" or targetPref == "Incense Coffee" or targetPref == "Frankincense Coffee" then
             return nm:find("coffee") or nm:find("kopi") or itId == "kopikemenyan"
-        elseif targetPref == "Incense" or targetPref == "Dupa" or targetPref == "Kemenyan" then
-            return (nm:find("incense") or nm:find("dupa") or nm:find("kemenyan")) and not nm:find("coffee") and not nm:find("kopi") and not nm:find("perak") and not nm:find("emas") and not nm:find("burner") and not nm:find("pedupaan")
+        elseif targetPref == "Dupa" or targetPref == "Incense" then
+            return (nm:find("dupa") or nm:find("incense")) and not nm:find("kemenyan") and not nm:find("menyan") and not nm:find("frank") and not nm:find("coffee") and not nm:find("kopi") and not nm:find("perak") and not nm:find("emas") and not nm:find("burner") and not nm:find("pedupaan")
+        elseif targetPref == "Kemenyan" or targetPref == "Menyan" or targetPref == "Frankincense" then
+            return (nm:find("kemenyan") or nm:find("menyan") or nm:find("frankincense") or nm:find("frank")) and not nm:find("dupa") and not nm:find("incense") and not nm:find("coffee") and not nm:find("kopi") and not nm:find("perak") and not nm:find("silver") and not nm:find("emas")
         elseif targetPref == "Sate Gagak" or targetPref == "Crow Satay" then
             return ((nm:find("satay") or nm:find("sate")) and (nm:find("gagak") or nm:find("crow"))) or itId == "sategagak"
         elseif targetPref == "Crow Meat" or targetPref == "Daging Gagak" then
@@ -1561,10 +1563,13 @@ local function isItemMatchingPref(itemName, pref)
     if (pref == "Sate Kepiting" or pref == "Crab Satay") and (inNorm:find("satay") or inNorm:find("sate") or inNorm == "satekepiting") then
         return true
     end
-    if (pref == "Kemenyan" or pref == "Dupa" or pref == "Incense") and (inNorm == "dupa" or inNorm == "kemenyan" or inNorm == "incense") then
+    if (pref == "Dupa" or pref == "Incense") and (inNorm == "dupa" or inNorm == "incense") then
         return true
     end
-    if (pref == "Kopi Kemenyan" or pref == "Incense Coffee") and (inNorm:find("kopi") or inNorm:find("coffee") or inNorm == "kopikemenyan") then
+    if (pref == "Kemenyan" or pref == "Menyan" or pref == "Frankincense") and (inNorm == "kemenyan" or inNorm == "menyan" or inNorm == "frankincense" or inNorm == "frank") then
+        return true
+    end
+    if (pref == "Kopi Kemenyan" or pref == "Incense Coffee" or pref == "Frankincense Coffee") and (inNorm:find("kopi") or inNorm:find("coffee") or inNorm == "kopikemenyan") then
         return true
     end
     if (pref == "Sate Gagak" or pref == "Crow Satay") and (inNorm:find("gagak") or inNorm == "sategagak") then
@@ -1614,8 +1619,13 @@ local function hasItemInBackpack(itemOrName)
                                 return true
                             end
                         end
-                        if (inNorm == "dupa" or inNorm == "kemenyan" or inNorm == "incense") and (nm:find("dupa") or nm:find("kemenyan") or nm:find("incense")) then
+                        if (inNorm == "dupa" or inNorm == "incense") and (nm:find("dupa") or nm:find("incense")) and not nm:find("kemenyan") and not nm:find("menyan") and not nm:find("frank") then
                             if not nm:find("perak") and not nm:find("emas") and not nm:find("coffee") and not nm:find("kopi") then
+                                return true
+                            end
+                        end
+                        if (inNorm == "kemenyan" or inNorm == "menyan" or inNorm == "frankincense" or inNorm == "frank") and (nm:find("kemenyan") or nm:find("menyan") or nm:find("frankincense") or nm:find("frank")) and not nm:find("dupa") and not nm:find("incense") then
+                            if not nm:find("perak") and not nm:find("silver") and not nm:find("emas") and not nm:find("coffee") and not nm:find("kopi") then
                                 return true
                             end
                         end
@@ -1635,7 +1645,7 @@ local function getPreferenceForSlot(slotIndex)
     if strat:find("Fokus") then
         if strat:find("Crab Satay") or strat:find("Sate Kepiting") then
             return "Crab Satay"
-        elseif strat:find("Kopi Kemenyan") or strat:find("Incense Coffee") then
+        elseif strat:find("Kopi Kemenyan") or strat:find("Incense Coffee") or strat:find("Frankincense Coffee") then
             return "Incense Coffee"
         elseif strat:find("Kentang") then
             return "Kentang"
@@ -1766,7 +1776,7 @@ local function doRestockViaRakAksi()
                                 for _, tool in ipairs(container:GetChildren()) do
                                     if tool:IsA("Tool") and tool:GetAttribute("ItemId") and not isProtectedTool(tool) then
                                         local itemId = tool:GetAttribute("ItemId")
-                                        if itemId ~= "Incense" and itemId ~= "Dupa" and not itemId:lower():find("axe") and not itemId:lower():find("pick") then
+                                        if itemId ~= "Incense" and itemId ~= "Dupa" and itemId ~= "Kemenyan" and itemId ~= "Frankincense" and not itemId:lower():find("axe") and not itemId:lower():find("pick") then
                                             targetItem = itemId
                                             break
                                         end
@@ -2924,9 +2934,9 @@ local function scanMapBarangGhaib()
             local obj = (o.ObjectText or ""):lower()
             local pName = o.Parent and o.Parent.Name:lower() or ""
 
-            local isGaib = obj:find("dupa") or obj:find("kemenyan") or obj:find("jamur") or obj:find("melati")
+            local isGaib = obj:find("dupa") or obj:find("incense") or obj:find("kemenyan") or obj:find("menyan") or obj:find("frankincense") or obj:find("jamur") or obj:find("melati")
                 or obj:find("gagak") or obj:find("tuyul") or obj:find("arwah") or obj:find("pusaka")
-                or pName:find("dupa") or pName:find("kemenyan") or pName:find("jamur")
+                or pName:find("dupa") or pName:find("incense") or pName:find("kemenyan") or pName:find("menyan") or pName:find("frankincense") or pName:find("jamur")
                 or pName:find("tuyul") or pName:find("gagak")
 
             if isGaib then
@@ -3112,13 +3122,34 @@ local COOKING_RECIPES = {
 local function getInventoryItemCount(itemId)
     local target = itemId:lower():gsub("%s+", "")
     local total = 0
+    local aliases = { target }
+    if target == "kemenyan" or target == "menyan" or target == "frankincense" then
+        aliases = { "kemenyan", "menyan", "frankincense" }
+    elseif target == "dupa" or target == "incense" then
+        aliases = { "dupa", "incense" }
+    elseif target == "kepitingsungai" or target == "rivercrab" or target == "kepiting" then
+        aliases = { "kepitingsungai", "rivercrab", "kepiting" }
+    elseif target == "daginggagak" or target == "crowmeat" or target == "gagak" then
+        aliases = { "daginggagak", "crowmeat", "gagak" }
+    end
+
     for _, cont in ipairs({ LP:FindFirstChildOfClass("Backpack"), LP.Character }) do
         if cont then
             for _, t in ipairs(cont:GetChildren()) do
                 if t:IsA("Tool") then
                     local tId = (t:GetAttribute("ItemId") or t.Name):lower():gsub("%s+", "")
                     local tNm = t.Name:lower():gsub("%s+", "")
-                    if tId == target or tNm == target or tNm:find(target, 1, true) or target:find(tNm, 1, true) then
+                    if (target == "kemenyan" or target == "menyan" or target == "frankincense") and (tNm:find("perak") or tNm:find("silver")) then
+                        continue
+                    end
+                    local matched = false
+                    for _, al in ipairs(aliases) do
+                        if tId == al or tNm == al or tNm:find(al, 1, true) or al:find(tNm, 1, true) then
+                            matched = true
+                            break
+                        end
+                    end
+                    if matched then
                         local c = tonumber(t:GetAttribute("Count")) or tonumber(t.Name:match("x(%d+)")) or 1
                         total = total + c
                     end
@@ -3898,7 +3929,7 @@ local function sweepAllForagables()
     for _, o in ipairs(Workspace:GetDescendants()) do
         if o:IsA("ProximityPrompt") and o.Enabled then
             local act = o.ActionText:lower()
-            if act:find("ambil") or act:find("petik") or act:find("pungut") or act:find("tangkap") then
+            if act:find("ambil") or act:find("petik") or act:find("pungut") or act:find("tangkap") or act:find("take") or act:find("pick") or act:find("catch") or o.Name:lower():find("ambil") then
                 local part = o.Parent:IsA("BasePart") and o.Parent or (o.Parent:IsA("Attachment") and o.Parent.Parent:IsA("BasePart") and o.Parent.Parent or nil)
                 if part then
                     table.insert(targets, { prompt = o, part = part, obj = o.ObjectText })
@@ -3961,8 +3992,10 @@ local function doSafeLoot(singleTargetName)
             return text:find("kepiting") or text:find("crab")
         elseif key == "gagak" or key == "crow" then
             return text:find("gagak") or text:find("crow")
-        elseif key == "dupa" or key == "incense" or key == "kemenyan" then
-            return (text:find("dupa") or text:find("incense") or text:find("kemenyan")) and not text:find("frankincense")
+        elseif key == "dupa" or key == "incense" then
+            return (text:find("dupa") or text:find("incense")) and not text:find("kemenyan") and not text:find("menyan") and not text:find("frank")
+        elseif key == "kemenyan" or key == "menyan" or key == "frankincense" or key == "frank" then
+            return (text:find("kemenyan") or text:find("menyan") or text:find("frankincense") or text:find("frank")) and not text:find("silver") and not text:find("perak") and not text:find("dupa") and not text:find("incense")
         elseif key == "jamur" or key == "mushroom" then
             return text:find("jamur") or text:find("mushroom")
         elseif key == "melati" or key == "jasmine" then
@@ -3994,6 +4027,7 @@ local function doSafeLoot(singleTargetName)
                     allowed = matchItemKey(combined, "kepiting")
                         or matchItemKey(combined, "gagak")
                         or matchItemKey(combined, "dupa")
+                        or matchItemKey(combined, "kemenyan")
                         or matchItemKey(combined, "jamur")
                         or matchItemKey(combined, "melati")
                 else
@@ -4290,7 +4324,9 @@ task.spawn(function()
                                 addESP(part, "🍄 Jamur", Color3.fromRGB(180, 100, 255), "item")
                             elseif State.ESP_Items and (o:find("melati") or a:find("melati")) then
                                 addESP(part, "🌸 Melati", Color3.fromRGB(120, 240, 255), "item")
-                            elseif State.ESP_Items and (o:find("kemenyan") or a:find("kemenyan") or o:find("dupa")) then
+                            elseif State.ESP_Items and (o:find("dupa") or a:find("dupa") or o:find("incense") or a:find("incense") or (p and p.Name:lower():find("dupa"))) then
+                                addESP(part, "🪔 Dupa", Color3.fromRGB(240, 100, 200), "item")
+                            elseif State.ESP_Items and (o:find("kemenyan") or a:find("kemenyan") or o:find("frankincense") or a:find("frank") or o:find("menyan") or (p and p.Name:lower():find("kemenyan"))) then
                                 addESP(part, "🪵 Kemenyan", Color3.fromRGB(255, 170, 50), "item")
                             elseif State.ESP_Animals and (o:find("gagak") or a:find("gagak")) then
                                 addESP(part, "🦅 Gagak", Color3.fromRGB(140, 160, 220), "animal")
@@ -6729,7 +6765,7 @@ SecSafeLoot:Toggle({
 })
 
 SecSafeLoot:Toggle({
-    Title = "🪔 Auto Get Dupa",
+    Title = "🪔 Auto Get Dupa (Incense)",
     Desc = "Otomatis ambil dupa wangi gaib di sekitar map",
     Value = State.AutoGetDupa,
     Callback = function(v)
@@ -6739,8 +6775,8 @@ SecSafeLoot:Toggle({
 })
 
 SecSafeLoot:Toggle({
-    Title = "🪵 Auto Get Kemenyan",
-    Desc = "Otomatis ambil kemenyan mistis (bisa diseduh jadi Kopi Kemenyan)",
+    Title = "🪵 Auto Get Kemenyan (Menyan / Frankincense)",
+    Desc = "Otomatis ambil getah kemenyan mistis (bisa diseduh jadi Kopi Kemenyan)",
     Value = State.AutoGetKemenyan,
     Callback = function(v)
         State.AutoGetKemenyan = v
@@ -8206,8 +8242,8 @@ do
 local TabVisual = Window:Tab({ Title = "Visual ESP", Icon = "eye" })
 local SecEspItems = TabVisual:Section({ Title = "ESP Item Liar & Alam" })
 SecEspItems:Toggle({
-    Title = "ESP Jamur, Melati & Kemenyan",
-    Desc = "Sorot posisi Jamur, Bunga Melati, & Dupa dengan nama + jarak",
+    Title = "ESP Jamur, Melati, Dupa & Kemenyan",
+    Desc = "Sorot posisi Jamur, Bunga Melati, Dupa (Incense), & Kemenyan (Frankincense) dengan nama + jarak",
     Value = State.ESP_Items,
     Callback = function(v)
         State.ESP_Items = v
