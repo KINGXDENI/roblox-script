@@ -1957,6 +1957,7 @@ local function autoTambangLoop()
     if tambangRunning then return end
     tambangRunning = true
     task.spawn(function()
+        log("[Tambang] Auto Tambang Batu dimulai")
         while State.AutoTambang do
             local hum  = getHum()
             local root = getRoot()
@@ -1970,40 +1971,103 @@ local function autoTambangLoop()
             end
 
             if not beliung then
+                log("[Tambang] Tidak ada Beliung di tas! Nyalakan Auto Beli Beliung atau beli di toko.")
                 task.wait(3)
                 continue
             end
 
-            hum:EquipTool(beliung)
-            task.wait(0.15)
+            if beliung.Parent ~= LP.Character then
+                hum:EquipTool(beliung)
+                beliung.Parent = LP.Character
+                task.wait(0.2)
+            end
 
-            local bc = Workspace:FindFirstChild("BahanCraft")
-            if bc then
-                local nearestNode, nearestDist = nil, math.huge
-                for _, node in ipairs(bc:GetChildren()) do
-                    if node.Name:find("Batu") and node:GetAttribute("Tumbang") ~= true then
-                        local part = node:FindFirstChild("Batu") or node:FindFirstChildWhichIsA("BasePart")
-                        local prompt = node:FindFirstChild("TebangPrompt", true)
-                        if part and prompt then
-                            local d = (root.Position - part.Position).Magnitude
-                            if d < nearestDist then
-                                nearestDist = d
-                                nearestNode = node
+            -- Cari batu tambang terdekat
+            local nearestPart, nearestPrompt, nearestDist = nil, nil, math.huge
+
+            -- 1. Scan folder BahanCraft / Tambang / Batuan jika ada
+            local candidateFolders = {
+                Workspace:FindFirstChild("BahanCraft"),
+                Workspace:FindFirstChild("Tambang"),
+                Workspace:FindFirstChild("Batuan"),
+                Workspace:FindFirstChild("SpawnBahan"),
+            }
+
+            for _, folder in ipairs(candidateFolders) do
+                if folder then
+                    for _, node in ipairs(folder:GetChildren()) do
+                        local nameLower = node.Name:lower()
+                        if nameLower:find("batu") or nameLower:find("ore") or nameLower:find("rock") then
+                            local prompt = node:FindFirstChildWhichIsA("ProximityPrompt", true)
+                            local part = node:FindFirstChild("Batu") or (node:IsA("BasePart") and node) or node:FindFirstChildWhichIsA("BasePart")
+                            if prompt and prompt.Enabled and part then
+                                local d = (root.Position - part.Position).Magnitude
+                                if d < nearestDist then
+                                    nearestDist = d
+                                    nearestPart = part
+                                    nearestPrompt = prompt
+                                end
                             end
                         end
                     end
                 end
+            end
 
-                if nearestNode then
-                    local part = nearestNode:FindFirstChild("Batu") or nearestNode:FindFirstChildWhichIsA("BasePart")
-                    local prompt = nearestNode:FindFirstChild("TebangPrompt", true)
-                    if part and prompt then
-                        root.CFrame = CFrame.new(part.Position + Vector3.new(0, 2, 2.5), part.Position)
-                        task.wait(0.3)
-                        for hit = 1, 4 do
-                            if nearestNode:GetAttribute("Tumbang") == true then break end
-                            safeFirePrompt(prompt)
-                            task.wait(0.4)
+            -- 2. Fallback scan Workspace langsung untuk batuan yang aktif
+            if not nearestPart then
+                for _, desc in ipairs(Workspace:GetDescendants()) do
+                    if desc:IsA("ProximityPrompt") and desc.Enabled then
+                        local pName = desc.Name:lower()
+                        local ot = (desc.ObjectText or ""):lower()
+                        local at = (desc.ActionText or ""):lower()
+                        local par = desc.Parent
+                        local parName = par and par.Name:lower() or ""
+                        if ot:find("batu") or at:find("batu") or ot:find("tambang") or at:find("tambang") 
+                           or pName:find("batu") or pName:find("tambang") or parName:find("batu") or parName:find("ore") then
+                            local part = (par and par:IsA("BasePart") and par) or (par and par:FindFirstChildWhichIsA("BasePart"))
+                            if part then
+                                local d = (root.Position - part.Position).Magnitude
+                                if d < nearestDist then
+                                    nearestDist = d
+                                    nearestPart = part
+                                    nearestPrompt = desc
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            if nearestPart and nearestPrompt and nearestPrompt.Enabled then
+                root.CFrame = CFrame.new(nearestPart.Position + Vector3.new(0, 1.8, 2.2), nearestPart.Position)
+                task.wait(0.2)
+
+                for hit = 1, 6 do
+                    if not State.AutoTambang then break end
+                    if not nearestPrompt.Enabled or not nearestPart.Parent then break end
+
+                    if beliung.Parent ~= LP.Character then
+                        beliung.Parent = LP.Character
+                    end
+
+                    safeFirePrompt(nearestPrompt)
+                    local holdT = (nearestPrompt.HoldDuration and nearestPrompt.HoldDuration > 0) and nearestPrompt.HoldDuration or 0.35
+                    task.wait(holdT + 0.1)
+                end
+
+                -- Ambil drop item di sekitar
+                task.wait(0.2)
+                for _, drop in ipairs(Workspace:GetChildren()) do
+                    if drop:IsA("Tool") or drop:IsA("Model") or drop:IsA("BasePart") then
+                        local dName = drop.Name:lower()
+                        if dName:find("batu") or dName:find("besi") or dName:find("ore") then
+                            local dPos = drop:IsA("BasePart") and drop.Position or drop:GetPivot().Position
+                            if (root.Position - dPos).Magnitude < 15 then
+                                local p = drop:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                if p and p.Enabled then
+                                    safeFirePrompt(p)
+                                end
+                            end
                         end
                     end
                 end
@@ -2011,6 +2075,7 @@ local function autoTambangLoop()
             task.wait(0.5)
         end
         tambangRunning = false
+        log("[Tambang] Auto Tambang Batu berhenti")
     end)
 end
 
@@ -4984,140 +5049,131 @@ end
 -- ════════════════════════════════════════════════════════════════════════════
 -- CONFIG MANAGER (AUTO-SAVE & LOAD)
 -- ════════════════════════════════════════════════════════════════════════════
-local CONFIG_FILE = "PasarHutan_Config.json"
+local PROFILES_FILE = "PasarHutan_Profiles.json"
+local configRegistry = {
+    profiles = { "Default" },
+    activeProfile = "Default",
+    autoLoad = false -- Default auto-load adalah MATI (false) sesuai permintaan
+}
 
-local function saveConfig()
-    if not writefile then return false end
-    local cfg = {
-        WalkSpeed       = State.WalkSpeed,
-        JumpPower       = State.JumpPower,
-        Fly             = State.Fly,
-        Noclip          = State.Noclip,
-        AutoFarm        = State.AutoFarm,
-        FarmSeed        = State.FarmSeed,
-        AutoRotateCrop  = State.AutoRotateCrop,
-        AutoSiram       = State.AutoSiram,
-        AutoBuySeed     = State.AutoBuySeed,
-        AutoEcoBalance  = State.AutoEcoBalance,
-        MinCoinReserve  = State.MinCoinReserve,
-        AutoDagang      = State.AutoDagang,
-        FastBuyer       = State.FastBuyer,
-        KiosStrategy    = State.KiosStrategy,
-        KiosBox1        = State.KiosBox1,
-        KiosBox2        = State.KiosBox2,
-        KiosBox3        = State.KiosBox3,
-        KiosBox4        = State.KiosBox4,
-        KiosBox5        = State.KiosBox5,
-        KiosBox6        = State.KiosBox6,
-        KiosBox7        = State.KiosBox7,
-        KiosBox8        = State.KiosBox8,
-        KiosBox9        = State.KiosBox9,
-        KiosBox10       = State.KiosBox10,
-        KiosUseFallback = State.KiosUseFallback,
-        KiosFallbackItem= State.KiosFallbackItem,
-        KiosRestockCooldown = State.KiosRestockCooldown,
-        AutoOlahGagak   = State.AutoOlahGagak,
-        AutoOlahAyam    = State.AutoOlahAyam,
-        AutoOlahKopi    = State.AutoOlahKopi,
-        AutoSafeLoot    = State.AutoSafeLoot,
-        LootTarget      = State.LootTarget,
-        AutoGetGagak    = State.AutoGetGagak,
-        AutoGetKepiting = State.AutoGetKepiting,
-        AutoGetDupa     = State.AutoGetDupa,
-        AutoGetKemenyan = State.AutoGetKemenyan,
-        AutoGetJamur    = State.AutoGetJamur,
-        AutoGetMelati   = State.AutoGetMelati,
-        AutoLootDelay   = State.AutoLootDelay,
-        AutoReconnect   = State.AutoReconnect,
-        AutoCook        = State.AutoCook,
-        FastCook        = State.FastCook,
-        AutoCookFav     = State.AutoCookFav,
-        FavCookTarget   = State.FavCookTarget,
-        AutoClaimQuest  = State.AutoClaimQuest,
-        AutoTukarPusaka = State.AutoTukarPusaka,
-        AutoSellMarket  = State.AutoSellMarket,
-        MiniHUD         = State.MiniHUD,
-        AutoTambang     = State.AutoTambang,
-        AutoTebang      = State.AutoTebang,
-        AutoBuyBeliung  = State.AutoBuyBeliung,
-        AutoForage      = State.AutoForage,
-        AutoGagak       = State.AutoGagak,
-        AutoTuyul       = State.AutoTuyul,
-        AutoPasarGaib   = State.AutoPasarGaib,
-        AutoGaibSnipe   = State.AutoGaibSnipe,
-        GaibSnipeTarget = State.GaibSnipeTarget,
-        AutoUseGaibBuff = State.AutoUseGaibBuff,
-        GaibBuffChoice  = State.GaibBuffChoice,
-        AutoPetiArwah   = State.AutoPetiArwah,
-        AutoClaimJatahPeti = State.AutoClaimJatahPeti,
-        AutoPetiSmartPull = State.AutoPetiSmartPull,
-        PetiPullPackage = State.PetiPullPackage,
-        TuyulRadar      = State.TuyulRadar,
-        AutoInterceptTuyul = State.AutoInterceptTuyul,
-        AutoFastTuyul   = State.AutoFastTuyul,
-        AutoPociQuest   = State.AutoPociQuest,
-        AutoKlaimLencana= State.AutoKlaimLencana,
-        AutoSmartUpLahan= State.AutoSmartUpLahan,
-        AutoSmartUpKios = State.AutoSmartUpKios,
-        AutoSpendKeahlian= State.AutoSpendKeahlian,
-        KeahlianFocus   = State.KeahlianFocus,
-        FastShopItem    = State.FastShopItem,
-        FastShopAmount  = State.FastShopAmount,
-        AutoBoostSync   = State.AutoBoostSync,
-        AutoPetiRaceClaim   = State.AutoPetiRaceClaim,
-        AutoEarlyKandang    = State.AutoEarlyKandang,
-        AutoMultiHarvest    = State.AutoMultiHarvest,
-        HiddenShopProbe     = State.HiddenShopProbe,
-        AutoGerobakSwap     = State.AutoGerobakSwap,
-        AutoGuildBoostSnipe = State.AutoGuildBoostSnipe,
-        RaceClaimDelay      = State.RaceClaimDelay,
-        AutoBruteforceCode  = State.AutoBruteforceCode,
-        AutoMiningMultiHit  = State.AutoMiningMultiHit,
-        AutoSiramOrang      = State.AutoSiramOrang,
-        AutoTradeBoardSnipe = State.AutoTradeBoardSnipe,
-        AutoPetiFreeOpen    = State.AutoPetiFreeOpen,
-        TradeBoardMinRatio  = State.TradeBoardMinRatio,
-        BruteforceDelay     = State.BruteforceDelay,
-        PotatoMode          = State.PotatoMode,
-        DiscordWebhook      = State.DiscordWebhook,
-        AutoWebhook         = State.AutoWebhook,
-        WebhookInterval     = State.WebhookInterval,
-        ESP_Items           = State.ESP_Items,
-        ESP_Animals         = State.ESP_Animals,
-        ESP_Peti            = State.ESP_Peti,
-        ESP_Mining          = State.ESP_Mining,
-        ESP_MaxDist         = State.ESP_MaxDist,
-    }
-    local ok = pcall(function()
-        writefile(CONFIG_FILE, game:GetService("HttpService"):JSONEncode(cfg))
+local function loadProfileRegistry()
+    if not readfile or not isfile or not isfile(PROFILES_FILE) then return end
+    pcall(function()
+        local content = readfile(PROFILES_FILE)
+        local data = game:GetService("HttpService"):JSONDecode(content)
+        if type(data) == "table" then
+            if type(data.profiles) == "table" and #data.profiles > 0 then
+                configRegistry.profiles = data.profiles
+            end
+            if type(data.activeProfile) == "string" and data.activeProfile ~= "" then
+                configRegistry.activeProfile = data.activeProfile
+            end
+            if type(data.autoLoad) == "boolean" then
+                configRegistry.autoLoad = data.autoLoad
+            end
+        end
     end)
+end
+
+local function saveProfileRegistry()
+    if not writefile then return end
+    pcall(function()
+        writefile(PROFILES_FILE, game:GetService("HttpService"):JSONEncode(configRegistry))
+    end)
+end
+
+local function getProfileFileName(name)
+    local safeName = (name or "Default"):gsub("[^%w_%-]", "")
+    if safeName == "" then safeName = "Default" end
+    return "PasarHutan_Config_" .. safeName .. ".json"
+end
+
+local function saveConfig(profileName)
+    if not writefile then return false end
+    profileName = profileName or configRegistry.activeProfile or "Default"
+    local cfg = {}
+    for k, v in pairs(State) do
+        if type(v) ~= "function" and type(v) ~= "userdata" and type(v) ~= "thread" then
+            cfg[k] = v
+        end
+    end
+
+    local fName = getProfileFileName(profileName)
+    local ok = pcall(function()
+        writefile(fName, game:GetService("HttpService"):JSONEncode(cfg))
+    end)
+
+    if ok then
+        local found = false
+        for _, p in ipairs(configRegistry.profiles) do
+            if p == profileName then found = true; break end
+        end
+        if not found then
+            table.insert(configRegistry.profiles, profileName)
+        end
+        configRegistry.activeProfile = profileName
+        saveProfileRegistry()
+        log(("[Config] Profil '%s' berhasil disimpan ke %s"):format(profileName, fName))
+    end
     return ok
 end
 
-local function loadConfig()
-    if not readfile or not isfile or not isfile(CONFIG_FILE) then return false end
+local function loadConfig(profileName)
+    if not readfile or not isfile then return false end
+    profileName = profileName or configRegistry.activeProfile or "Default"
+    local fName = getProfileFileName(profileName)
+    if not isfile(fName) then
+        if profileName == "Default" and isfile("PasarHutan_Config.json") then
+            fName = "PasarHutan_Config.json"
+        else
+            return false
+        end
+    end
+
     local ok = pcall(function()
-        local content = readfile(CONFIG_FILE)
+        local content = readfile(fName)
         local cfg = game:GetService("HttpService"):JSONDecode(content)
         for k, v in pairs(cfg) do
             if State[k] ~= nil then
                 State[k] = v
             end
         end
+        configRegistry.activeProfile = profileName
+        saveProfileRegistry()
+        log(("[Config] Profil '%s' berhasil dimuat dari %s"):format(profileName, fName))
     end)
     return ok
 end
 
--- Muat konfigurasi sebelum membuat UI
-pcall(loadConfig)
-
--- Auto-Save background worker (simpan berkala tiap 60 detik)
-task.spawn(function()
-    while true do
-        task.wait(60)
-        pcall(saveConfig)
+local function deleteConfig(profileName)
+    if not profileName or profileName == "Default" then return false end
+    local fName = getProfileFileName(profileName)
+    if delfile and isfile and isfile(fName) then
+        pcall(function() delfile(fName) end)
     end
-end)
+    for idx, p in ipairs(configRegistry.profiles) do
+        if p == profileName then
+            table.remove(configRegistry.profiles, idx)
+            break
+        end
+    end
+    if configRegistry.activeProfile == profileName then
+        configRegistry.activeProfile = configRegistry.profiles[1] or "Default"
+    end
+    saveProfileRegistry()
+    return true
+end
+
+-- Inisialisasi daftar profil
+pcall(loadProfileRegistry)
+
+-- Hanya muat config jika Auto-Load secara eksplisit diaktifkan oleh pengguna (Default: MATI)
+if configRegistry.autoLoad == true then
+    log("[Config] Auto-Load aktif! Memuat profile: " .. tostring(configRegistry.activeProfile))
+    pcall(function() loadConfig(configRegistry.activeProfile) end)
+else
+    log("[Config] Auto-Load nonaktif (Default). Memulai dengan konfigurasi bersih.")
+end
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- AUTO-RECONNECT & REJOIN WATCHDOG
@@ -5316,9 +5372,8 @@ SecKebunBantu:Button({
 -- 2. TAB: DAGANG (🏪)
 -- ────────────────────────────────────────────────────────────────────────────
 end
-do
 local TabDagang = Window:Tab({ Title = "Dagang", Icon = "store" })
-
+do
 local SecKiosStats = TabDagang:Section({ Title = "Status Rak Kios" })
 ParaKios = SecKiosStats:Paragraph({
     Title = "Rak Stall Kios",
@@ -5371,7 +5426,9 @@ SecKiosAuto:Toggle({
         if v then autoSellMarketLoop() end
     end
 })
+end
 
+do
 local SecBoxConfig = TabDagang:Section({ Title = "Pengaturan Produk per Box / Rak (Slot 1 - 10)" })
 
 local KIOS_BOX_OPTIONS = {
@@ -5499,22 +5556,17 @@ SecBoxConfig:Button({
     Callback = function()
         for i = 1, 10 do
             State["KiosBox" .. i] = "Otomatis"
+            if ddBoxes[i] and ddBoxes[i].SetValue then
+                ddBoxes[i]:SetValue("Otomatis")
+            end
         end
-        if ddBox1 and ddBox1.SetValue then ddBox1:SetValue("Otomatis") end
-        if ddBox2 and ddBox2.SetValue then ddBox2:SetValue("Otomatis") end
-        if ddBox3 and ddBox3.SetValue then ddBox3:SetValue("Otomatis") end
-        if ddBox4 and ddBox4.SetValue then ddBox4:SetValue("Otomatis") end
-        if ddBox5 and ddBox5.SetValue then ddBox5:SetValue("Otomatis") end
-        if ddBox6 and ddBox6.SetValue then ddBox6:SetValue("Otomatis") end
-        if ddBox7 and ddBox7.SetValue then ddBox7:SetValue("Otomatis") end
-        if ddBox8 and ddBox8.SetValue then ddBox8:SetValue("Otomatis") end
-        if ddBox9 and ddBox9.SetValue then ddBox9:SetValue("Otomatis") end
-        if ddBox10 and ddBox10.SetValue then ddBox10:SetValue("Otomatis") end
         saveConfig()
         log("Semua 10 Box Kios telah direset ke 'Otomatis'!")
     end
 })
+end
 
+do
 local SecOlah = TabDagang:Section({ Title = "Meja Pengolahan (Batch Maks 100x)" })
 
 SecOlah:Toggle({
@@ -5552,7 +5604,9 @@ SecOlah:Button({
     Desc = "Memotong semua unggas & giling kopi yang ada di tas sekaligus",
     Callback = function() task.spawn(doAutoOlah) end
 })
+end
 
+do
 local SecSpeedBuy = TabDagang:Section({ Title = "Speedbuy Toko (Beli Cepat & Grosir)" })
 
 SecSpeedBuy:Dropdown({
@@ -5578,7 +5632,6 @@ SecSpeedBuy:Button({
         end)
     end
 })
-
 end
 do
 -- ────────────────────────────────────────────────────────────────────────────
@@ -6182,9 +6235,8 @@ SecExploitKandang:Button({
 -- 5.5 TAB: EXPLOIT LAB (🧪)
 -- ────────────────────────────────────────────────────────────────────────────
 end
-do
 local TabExploit = Window:Tab({ Title = "Exploit Lab", Icon = "flask-conical" })
-
+do
 local SecExploitNote = TabExploit:Section({ Title = "ℹ️ Bug Abuse Laboratory" })
 SecExploitNote:Paragraph({
     Title = "Cara Kerja",
@@ -6287,7 +6339,8 @@ SecGuild:Button({
         task.spawn(doGuildBoostSnipe)
     end
 })
-
+end
+do
 -- [Batch 2] Bruteforce, Mining, EXP Steal, Trade Snipe, Free Chest, Price Spoof
 
 local SecBrute = TabExploit:Section({ Title = "🔑 Redeem Code Bruteforce" })
@@ -6356,7 +6409,8 @@ SecSiramOrang:Button({
         task.spawn(doSiramLahanOrang)
     end
 })
-
+end
+do
 local SecTrade = TabExploit:Section({ Title = "🔄 TradeBoard Auto-Snipe" })
 
 SecTrade:Slider({
@@ -6539,9 +6593,8 @@ SecGacha:Button({
 -- 7. TAB: MENU GAME (📱)
 -- ────────────────────────────────────────────────────────────────────────────
 end
-do
 local TabMenu = Window:Tab({ Title = "Menu GUI", Icon = "layout-grid" })
-
+do
 local SecMenuAction = TabMenu:Section({ Title = "Kontrol GUI Game" })
 SecMenuAction:Button({
     Title = "❌ TUTUP SEMUA MENU GAME YANG TERBUKA",
@@ -6599,7 +6652,9 @@ SecMenuOpen:Button({
     Title = "🔄 Buka Menu Trade Player",
     Callback = function() openGameGui("TradeGui", "Trade") end
 })
+end
 
+do
 local SecInspector = TabMenu:Section({ Title = "Player & Inventory Inspector" })
 
 local selectedTargetPlayer = LP.Name
@@ -6635,7 +6690,9 @@ SecInspector:Button({
         inspectPlayerInventory(selectedTargetPlayer)
     end
 })
+end
 
+do
 local SecQuests = TabMenu:Section({ Title = "Misi & Hadiah Quest Harian" })
 SecQuests:Toggle({
     Title = "Auto Claim Hadiah Quest (Harian & Mingguan)",
@@ -7011,9 +7068,8 @@ SecBoostSync:Button({
 -- 12. TAB: SETTINGS & TEMA (🎨)
 -- ────────────────────────────────────────────────────────────────────────────
 end
-do
 local TabSettings = Window:Tab({ Title = "Pengaturan", Icon = "settings" })
-
+do
 local SecTheme = TabSettings:Section({ Title = "Tampilan & Tema WindUI" })
 
 local themeNames = {}
@@ -7043,19 +7099,45 @@ SecTheme:Toggle({
         pcall(function() WindUI:ToggleAcrylic(v) end)
     end
 })
+end
 
-local SecConfig = TabSettings:Section({ Title = "Konfigurasi & Auto-Save" })
+do
+local SecConfig = TabSettings:Section({ Title = "📁 Manajemen Profil Config (Multi-Profile)" })
+
+local selectedProfileInput = configRegistry.activeProfile or "Default"
+local ddProfileSelect = nil
+
+SecConfig:Paragraph({
+    Title = "ℹ️ Sistem Multi-Config",
+    Desc = "Tiap script dijalankan, konfigurasi dimulai dari kondisi bersih (Auto-Load MATI secara default). Buat config baru, simpan dengan nama bebas, lalu muat profil mana yang ingin kamu gunakan kapan saja."
+})
+
+SecConfig:Input({
+    Title = "Nama Profil Config",
+    Desc = "Ketik nama profil untuk disimpan (contoh: Farm_Solo, AFK_Dagang, Full_Auto, Default)",
+    Value = selectedProfileInput,
+    Placeholder = "Nama profil...",
+    Callback = function(v)
+        if v and v:gsub("%s+", "") ~= "" then
+            selectedProfileInput = v:gsub("[^%w_%-]", "")
+        end
+    end
+})
 
 SecConfig:Button({
-    Title = "💾 Simpan Config Sekarang (Save JSON)",
-    Desc = "Menyimpan seluruh toggle & pengaturan ke PasarHutan_Config.json",
+    Title = "💾 Simpan Config (Save Profile)",
+    Desc = "Menyimpan seluruh toggle & pengaturan saat ini ke nama profil di atas",
     Callback = function()
-        local ok = saveConfig()
+        local target = (selectedProfileInput and selectedProfileInput ~= "") and selectedProfileInput or configRegistry.activeProfile or "Default"
+        local ok = saveConfig(target)
         if ok then
+            if ddProfileSelect and ddProfileSelect.SetValues then
+                ddProfileSelect:SetValues(configRegistry.profiles)
+            end
             pcall(function()
                 WindUI:Notify({
-                    Title = "Config Tersimpan",
-                    Desc = "Pengaturan berhasil disimpan ke PasarHutan_Config.json!",
+                    Title = "💾 Profil Tersimpan!",
+                    Desc = ("Pengaturan berhasil disimpan ke profil: %s"):format(target),
                     Duration = 3,
                     Icon = "check"
                 })
@@ -7063,7 +7145,7 @@ SecConfig:Button({
         else
             pcall(function()
                 WindUI:Notify({
-                    Title = "Info Simpan",
+                    Title = "Gagal Menyimpan",
                     Desc = "writefile tidak tersedia di executor ini.",
                     Duration = 3,
                     Icon = "alert-circle"
@@ -7073,16 +7155,29 @@ SecConfig:Button({
     end
 })
 
+ddProfileSelect = SecConfig:Dropdown({
+    Title = "📂 Pilih Profil Tersimpan",
+    Desc = "Pilih salah satu profil yang sudah pernah disimpan untuk dimuat",
+    Values = configRegistry.profiles,
+    Value = configRegistry.activeProfile,
+    Callback = function(v)
+        configRegistry.activeProfile = v
+        selectedProfileInput = v
+        saveProfileRegistry()
+    end
+})
+
 SecConfig:Button({
-    Title = "🔄 Muat Ulang Config (Load JSON)",
-    Desc = "Membaca ulang konfigurasi dari PasarHutan_Config.json",
+    Title = "📥 Muat Config Terpilih (Load Profile)",
+    Desc = "Menerapkan seluruh pengaturan dari profil yang dipilih di dropdown",
     Callback = function()
-        local ok = loadConfig()
+        local target = configRegistry.activeProfile or selectedProfileInput or "Default"
+        local ok = loadConfig(target)
         if ok then
             pcall(function()
                 WindUI:Notify({
-                    Title = "Config Dimuat",
-                    Desc = "Pengaturan berhasil dimuat ulang dari file!",
+                    Title = "📥 Profil Dimuat!",
+                    Desc = ("Profil '%s' berhasil dimuat & diterapkan!"):format(target),
                     Duration = 3,
                     Icon = "check"
                 })
@@ -7090,8 +7185,8 @@ SecConfig:Button({
         else
             pcall(function()
                 WindUI:Notify({
-                    Title = "Info Muat",
-                    Desc = "File PasarHutan_Config.json belum ada atau gagal dibaca.",
+                    Title = "File Tidak Ditemukan",
+                    Desc = ("Profil '%s' belum ada atau gagal dibaca."):format(target),
                     Duration = 3,
                     Icon = "alert-circle"
                 })
@@ -7100,21 +7195,64 @@ SecConfig:Button({
     end
 })
 
+SecConfig:Toggle({
+    Title = "⚡ Auto-Load Config Saat Script Dijalankan",
+    Desc = "Jika diaktifkan, profil aktif akan otomatis dimuat tiap kamu menjalankan script. (Default: MATI)",
+    Value = configRegistry.autoLoad,
+    Callback = function(v)
+        configRegistry.autoLoad = v
+        saveProfileRegistry()
+        log("[Config] Auto-Load saat startup diset ke: " .. tostring(v))
+    end
+})
+
 SecConfig:Button({
-    Title = "⚠️ Reset Config ke Default (Semua OFF)",
-    Desc = "Mereset semua fitur menjadi OFF (kecuali Anti-AFK) dan menyimpan ke JSON",
+    Title = "🗑️ Hapus Profil Terpilih",
+    Desc = "Menghapus file profil yang sedang dipilih di dropdown",
+    Callback = function()
+        local target = configRegistry.activeProfile
+        if target == "Default" then
+            pcall(function()
+                WindUI:Notify({
+                    Title = "Tidak Bisa Dihapus",
+                    Desc = "Profil 'Default' adalah profil dasar dan tidak dapat dihapus.",
+                    Duration = 3,
+                    Icon = "alert-triangle"
+                })
+            end)
+            return
+        end
+        local ok = deleteConfig(target)
+        if ok then
+            if ddProfileSelect and ddProfileSelect.SetValues then
+                ddProfileSelect:SetValues(configRegistry.profiles)
+            end
+            pcall(function()
+                WindUI:Notify({
+                    Title = "🗑️ Profil Dihapus",
+                    Desc = ("Profil '%s' berhasil dihapus!"):format(target),
+                    Duration = 3,
+                    Icon = "trash"
+                })
+            end)
+        end
+    end
+})
+
+SecConfig:Button({
+    Title = "⚠️ Reset Semua Fitur ke OFF (Kondisi Bersih)",
+    Desc = "Mematikan semua toggle otomasi (Kebun, Dagang, Masak, Tambang, dll)",
     Callback = function()
         for k, _ in pairs(State) do
-            if type(State[k]) == "boolean" and k ~= "AntiAFK" and k ~= "AutoSaveConfig" then
+            if type(State[k]) == "boolean" and k ~= "AntiAFK" then
                 State[k] = false
             end
         end
-        saveConfig()
         pcall(function()
             WindUI:Notify({
-                Title = "Config Direset",
-                Desc = "Semua fitur dimatikan kecuali Anti-AFK!",
-                Duration = 4,
+                Title = "Hub Direset",
+                Desc = "Semua fitur otomasi telah dimatikan!",
+                Duration = 3,
                 Icon = "refresh-cw"
             })
         end)
