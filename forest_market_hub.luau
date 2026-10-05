@@ -850,11 +850,18 @@ local function getKiosSlotStats()
 
             local itemCount = 0
             local itemName = "Kosong"
-            if stok and #stok:GetChildren() > 0 then
-                local firstVal = stok:GetChildren()[1]
-                itemCount = firstVal:IsA("IntValue") and firstVal.Value or 1
-                itemName = firstVal.Name
+            local itemAttr = slot:GetAttribute("Item")
+            if itemAttr and type(itemAttr) == "string" and itemAttr ~= "" then
+                itemName = itemAttr
                 isOwned = true
+            end
+            if stok then
+                local val = (itemAttr and stok:FindFirstChild(itemAttr)) or stok:GetChildren()[1]
+                if val then
+                    itemCount = val:IsA("IntValue") and val.Value or 1
+                    itemName = val.Name
+                    isOwned = true
+                end
             end
 
             if isOwned then
@@ -1492,29 +1499,14 @@ local function getPreferenceForSlot(slotIndex)
 end
 
 local function findStallRackGui()
-    -- 1. Scan semua ScreenGui untuk mencari UI dengan teks 'Stall Rack' yang aktif & terlihat
-    for _, g in ipairs(PG:GetChildren()) do
-        if g:IsA("ScreenGui") and g.Enabled then
-            for _, d in ipairs(g:GetDescendants()) do
-                if d:IsA("TextLabel") and d.Text ~= "" and isGuiObjectActuallyVisible(d) then
-                    local t = d.Text:lower()
-                    if t == "stall rack" or t:find("stall rack") or (t:find("slots filled") and t:find("rack")) or (t:find("holds rack") and t:find("tray")) then
-                        return g
-                    end
-                end
-            end
-        end
+    local rakGui = PG:FindFirstChild("RakGui")
+    if rakGui and rakGui:IsA("ScreenGui") and rakGui.Enabled then
+        return rakGui
     end
-
-    -- 2. Fallback pencarian nama ScreenGui yang umum
-    for _, name in ipairs({"StallRackGui", "StallRack", "RackGui", "RakGui", "StallGui", "MarketRackGui", "KiosRakGui", "MarketGui", "KiosGui", "StallManageGui"}) do
+    for _, name in ipairs({"StallRackGui", "StallRack", "RackGui", "StallGui", "MarketRackGui", "KiosRakGui"}) do
         local g = PG:FindFirstChild(name)
         if g and g:IsA("ScreenGui") and g.Enabled then
-            for _, child in ipairs(g:GetChildren()) do
-                if child:IsA("GuiObject") and child.Visible then
-                    return g
-                end
-            end
+            return g
         end
     end
     return nil
@@ -1522,228 +1514,140 @@ end
 
 local function closeStallRackGui(rGui)
     pcall(function()
+        if _G.ToggleRak and rGui and rGui.MainFrame and rGui.MainFrame.Visible then
+            _G.ToggleRak()
+            return
+        end
         if rGui then
-            for _, d in ipairs(rGui:GetDescendants()) do
-                if (d:IsA("GuiButton") or d:IsA("ImageButton") or d:IsA("TextButton")) and isGuiObjectActuallyVisible(d) then
-                    local nm = d.Name:lower()
-                    local txt = (d:IsA("TextButton") or d:IsA("TextLabel")) and d.Text:lower():gsub("%s+", "") or ""
-                    if nm:find("close") or nm:find("tutup") or nm:find("exit") or nm == "x" or txt == "x" or txt == "close" or txt == "tutup" or txt == "✕" or txt == "x" then
-                        clickGuiElement(d)
-                        task.wait(0.12)
-                        break
-                    end
-                end
+            local closeBtn = rGui:FindFirstChild("CloseButton", true)
+            if closeBtn and isGuiObjectActuallyVisible(closeBtn) then
+                clickGuiElement(closeBtn)
             end
         end
-        closeGameGui("StallRackGui")
-        closeGameGui("StallRack")
-        closeGameGui("RackGui")
         closeGameGui("RakGui")
-        closeGameGui("StallGui")
-        closeGameGui("MarketRackGui")
-        closeGameGui("KiosRakGui")
-        if rGui and rGui:IsA("ScreenGui") then
-            rGui.Enabled = false
-            for _, child in ipairs(rGui:GetChildren()) do
-                if child:IsA("GuiObject") then
-                    child.Visible = false
-                end
-            end
-        end
+        closeGameGui("StallRackGui")
     end)
 end
 
 local function openStallRackGui()
     local rGui = findStallRackGui()
-    if rGui then return rGui end
+    if rGui and rGui.MainFrame and rGui.MainFrame.Visible then return rGui end
 
-    local myKios = getMyKios()
-    local root = getRoot()
-
-    local rackPrompt = nil
-    if myKios then
-        -- 1. Cari prompt dengan nama/teks terkait rak di Kios
-        for _, d in ipairs(myKios:GetDescendants()) do
-            if d:IsA("ProximityPrompt") and d.Enabled then
-                local pn = d.Name:lower()
-                local ot = (d.ObjectText or ""):lower()
-                local at = (d.ActionText or ""):lower()
-                if pn:find("rak") or pn:find("rack") or pn:find("stall")
-                   or ot:find("rak") or ot:find("rack") or ot:find("stall")
-                   or at:find("rak") or at:find("rack") or at:find("manage") or at:find("buka") or at:find("open") then
-                    rackPrompt = d
-                    break
-                end
-            end
-        end
-
-        -- 2. Fallback prompt di slot manapun
-        if not rackPrompt then
-            for _, d in ipairs(myKios:GetDescendants()) do
-                if d:IsA("ProximityPrompt") and d.Enabled then
-                    local pn = d.Name:lower()
-                    if not pn:find("upgrade") and not pn:find("lock") and not pn:find("buy") and not pn:find("incense") and not pn:find("dupa") then
-                        rackPrompt = d
-                        break
-                    end
-                end
-            end
-        end
+    if _G.ToggleRak then
+        pcall(_G.ToggleRak)
+        task.wait(0.25)
+        rGui = findStallRackGui()
+        if rGui and rGui.MainFrame and rGui.MainFrame.Visible then return rGui end
     end
 
-    if rackPrompt and root then
-        local pPart = rackPrompt.Parent
-        local pPos = pPart and (pPart:IsA("Attachment") and pPart.WorldPosition or (pPart:IsA("BasePart") and pPart.Position))
-        if pPos then
-            local dist = (root.Position - pPos).Magnitude
-            if dist > 8 then
-                root.CFrame = CFrame.new(pPos + Vector3.new(0, 1.8, 1.8), pPos)
+    local sidebar = PG:FindFirstChild("Sidebar")
+    local rakBtn = sidebar and sidebar:FindFirstChild("Rak", true)
+    if rakBtn and rakBtn:IsA("GuiButton") and isGuiObjectActuallyVisible(rakBtn) then
+        clickGuiElement(rakBtn)
+        task.wait(0.25)
+        rGui = findStallRackGui()
+        if rGui and rGui.MainFrame and rGui.MainFrame.Visible then return rGui end
+    end
+
+    openGameGui("RakGui", "Rak")
+    task.wait(0.2)
+    return findStallRackGui()
+end
+
+local function doRestockViaRakAksi()
+    local rakAksi = getR("RakAksi")
+    if not rakAksi then return false end
+
+    local slotStats = getKiosSlotStats()
+    if not slotStats.kiosFound then return false end
+
+    local maxLimit = slotStats.maxSlots or #slotStats.slots or 10
+    local restockedCount = 0
+
+    for i = 1, maxLimit do
+        local sInfo = slotStats.slots[i]
+        if sInfo and sInfo.owned then
+            local slotName = "slot" .. i
+            local pref = getPreferenceForSlot(i)
+
+            if not pref:find("Jangan Isi") and not pref:find("Kosongkan") and not pref:find("Tunggu") and pref ~= "None" then
+                -- 1. Coba isi ulang slot jika sudah ada item yang terpasang
+                local res = nil
+                pcall(function()
+                    res = rakAksi:InvokeServer("isi", slotName)
+                end)
+
+                if res and res.ok then
+                    restockedCount = restockedCount + 1
+                    log(("[StallRack] Rak %s diisi ulang (+%d)"):format(slotName, res.n or 0))
+                elseif res and res.reason == "kosong" then
+                    -- 2. Slot masih kosong, cari item sesuai preferensi dari tas
+                    local targetItem = nil
+                    local prod = findProductByPreference(pref)
+                    if prod then
+                        targetItem = prod:GetAttribute("ItemId") or prod.Name
+                    end
+
+                    -- Fallback cari item apapun yang bisa dijual di tas
+                    if not targetItem then
+                        for _, container in ipairs({ LP:FindFirstChildOfClass("Backpack"), LP.Character }) do
+                            if container then
+                                for _, tool in ipairs(container:GetChildren()) do
+                                    if tool:IsA("Tool") and tool:GetAttribute("ItemId") then
+                                        local itemId = tool:GetAttribute("ItemId")
+                                        if itemId ~= "Incense" and itemId ~= "Dupa" and not itemId:lower():find("axe") and not itemId:lower():find("pick") then
+                                            targetItem = itemId
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                            if targetItem then break end
+                        end
+                    end
+
+                    if targetItem then
+                        task.wait(0.25)
+                        local tRes = nil
+                        pcall(function()
+                            tRes = rakAksi:InvokeServer("taruh", slotName, targetItem)
+                        end)
+                        if tRes and tRes.ok then
+                            restockedCount = restockedCount + 1
+                            log(("[StallRack] Menaruh %s ke %s (+%d)"):format(targetItem, slotName, tRes.n or 0))
+                        end
+                    end
+                end
                 task.wait(0.25)
             end
         end
-        safeFirePrompt(rackPrompt)
-        task.wait(0.35)
-        rGui = findStallRackGui()
     end
 
-    if not rGui then
-        openGameGui("StallRackGui")
-        openGameGui("StallRack")
-        openGameGui("RackGui")
-        openGameGui("RakGui")
-        openGameGui("StallGui")
-        openGameGui("MarketRackGui")
-        openGameGui("KiosRakGui")
-        openGameGui("MarketGui")
-        openGameGui("KiosGui")
-        task.wait(0.25)
-        rGui = findStallRackGui()
-    end
-
-    return rGui
-end
-
-local function doRestockViaStallRack()
-    local rGui = openStallRackGui()
-    if not rGui then
-        return false
-    end
-
-    local filledSlots = 0
-    local placedSlots = 0
-
-    -- 1. Scan semua tombol di dalam rGui
-    for _, d in ipairs(rGui:GetDescendants()) do
-        if (d:IsA("TextButton") or d:IsA("ImageButton") or d:IsA("GuiButton")) and isGuiObjectActuallyVisible(d) then
-            local txt = (d:IsA("TextButton") or d:IsA("TextLabel")) and d.Text:lower():gsub("%s+", "") or ""
-            local nm = d.Name:lower()
-
-            local isFillBtn = false
-            -- Jika tombol memiliki teks Fill/Stack/Restock/Tambah/Isi/+
-            if txt == "fill" or txt == "fillall" or txt == "stack" or txt == "restock" or txt == "isi" or txt == "tambah" or txt == "+" then
-                isFillBtn = true
-            elseif nm:find("fill") or nm:find("stack") or nm:find("restock") then
-                if txt ~= "full" then
-                    isFillBtn = true
-                end
-            end
-
-            -- Jika tombol berdampingan dengan tombol 'Take all' pada card yang sama, dan bukan 'Take all' serta bukan 'Full'
-            if not isFillBtn and txt ~= "takeall" and txt ~= "full" and txt ~= "x" and txt ~= "close" and not nm:find("close") and not nm:find("take") then
-                local card = d.Parent
-                if card and card:IsA("GuiObject") then
-                    local hasTakeAll = false
-                    for _, sibling in ipairs(card:GetChildren()) do
-                        if (sibling:IsA("TextButton") or sibling:IsA("GuiButton")) and sibling ~= d then
-                            local st = sibling:IsA("TextButton") and sibling.Text:lower():gsub("%s+", "") or ""
-                            if st:find("takeall") or st:find("take") or st:find("ambil") then
-                                hasTakeAll = true
-                                break
-                            end
-                        end
-                    end
-                    if hasTakeAll and txt ~= "full" then
-                        isFillBtn = true
-                    end
-                end
-            end
-
-            if isFillBtn then
-                if clickGuiElement(d) then
-                    filledSlots = filledSlots + 1
-                    task.wait(0.2)
-                end
-            end
-        end
-    end
-
-    -- 2. Cek apakah ada 'Empty slot' yang bertuliskan 'Tap to place'
-    for _, d in ipairs(rGui:GetDescendants()) do
-        if d:IsA("GuiObject") and isGuiObjectActuallyVisible(d) then
-            local hasPlaceText = false
-            for _, cd in ipairs(d:GetDescendants()) do
-                if cd:IsA("TextLabel") and cd.Visible then
-                    local t = cd.Text:lower()
-                    if t:find("tap to place") or t:find("empty slot") or t:find("pilih barang") then
-                        hasPlaceText = true
-                        break
-                    end
-                end
-            end
-
-            if hasPlaceText then
-                local clickTarget = (d:IsA("GuiButton") and d) or d:FindFirstChildWhichIsA("GuiButton", true) or d
-                if clickTarget and clickGuiElement(clickTarget) then
-                    placedSlots = placedSlots + 1
-                    task.wait(0.3)
-
-                    -- Jika muncul popup pilihan barang dari tas, klik barang pertama yang tersedia
-                    for _, pop in ipairs(PG:GetDescendants()) do
-                        if pop:IsA("GuiButton") and isGuiObjectActuallyVisible(pop) then
-                            local pt = pop:IsA("TextButton") and pop.Text:lower() or ""
-                            local pn = pop.Name:lower()
-                            if not pt:find("close") and not pt:find("x") and not pt:find("cancel") and not pt:find("batal") and not pn:find("close") then
-                                if pop.Parent and pop.Parent ~= rGui and (pop.Parent.Name:lower():find("select") or pop.Parent.Name:lower():find("item") or pop.Parent.Name:lower():find("bag") or pop.Parent.Name:lower():find("inv")) then
-                                    clickGuiElement(pop)
-                                    task.wait(0.2)
-                                    break
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    task.wait(0.25)
-    closeStallRackGui(rGui)
-
-    local totalAction = filledSlots + placedSlots
-    if totalAction > 0 then
-        log(("[StallRack] Berhasil restok otomatis via GUI bawaan: %d slot diisi/ditempatkan!"):format(totalAction))
+    if restockedCount > 0 then
+        log(("[StallRack] Berhasil restok otomatis via RakAksi: %d rak diisi!"):format(restockedCount))
         pcall(function()
             WindUI:Notify({
                 Title = "🏪 Rak Kios Terisi!",
-                Desc = ("Berhasil restok %d rak via fitur Stall Rack bawaan."):format(totalAction),
+                Desc = ("Berhasil restok %d rak via RakAksi bawaan."):format(restockedCount),
                 Duration = 3,
                 Icon = "package-check"
             })
         end)
     else
-        log("[StallRack] Seluruh rak kios sudah terisi penuh (Full).")
+        log("[StallRack] Seluruh rak kios sudah terisi penuh (9/9).")
     end
+
     return true
 end
 
 local function debugScanStallRackGui()
     local rGui = openStallRackGui()
     if not rGui then
-        log("[Diagnostik StallRack] GUI Stall Rack tidak ditemukan di PlayerGui!")
+        log("[Diagnostik StallRack] GUI RakGui tidak ditemukan di PlayerGui!")
         pcall(function()
             WindUI:Notify({
                 Title = "🔍 Diagnostik Stall Rack",
-                Desc = "GUI Stall Rack belum terbuka atau tidak terdeteksi!",
+                Desc = "GUI RakGui belum terbuka atau tidak terdeteksi!",
                 Duration = 4,
                 Icon = "alert-circle"
             })
@@ -1777,72 +1681,15 @@ local function stockKiosShelves()
     if isActionBusy then return end
     isActionBusy = true
 
-    local root = getRoot()
-    local hum  = getHum()
-    if not root then
-        isActionBusy = false
-        return
-    end
-
-    local savedCFrame = root.CFrame
-
     local ok, res = pcall(function()
-        -- 1. UTAMAKAN RESTOK FITUR BAWAAN GAME: GUI STALL RACK (STACK RAK INSTAN DARI TAS)
-        local stallOk = doRestockViaStallRack()
-        if stallOk then
+        -- 1. UTAMAKAN REMOTE RESMI RAKAKSI (Instant Stack langsung dari tas ke rak)
+        local aksiOk = doRestockViaRakAksi()
+        if aksiOk then
             return true
         end
 
-        -- 2. Fallback fisik jika GUI Stall Rack tidak merespon
-        log("[Kios] Fallback: Memeriksa rak fisik...")
-        local slotStats = getKiosSlotStats()
-        if not slotStats.kiosFound then return false end
-
-        local excludeList = {}
-        local stockedAny = false
-        local maxLimit = slotStats.maxSlots or #slotStats.slots or 10
-        for i = 1, maxLimit do
-            local sInfo = slotStats.slots[i]
-            if sInfo and sInfo.owned and sInfo.prompt and sInfo.prompt.Enabled then
-                local stok = sInfo.stok
-                if not stok or #stok:GetChildren() == 0 then
-                    local pref = getPreferenceForSlot(i)
-                    if not pref:find("Jangan Isi") and not pref:find("Kosongkan") and not pref:find("Tunggu") and pref ~= "None" then
-                        local product = findProductByPreference(pref, excludeList)
-                        if product and hum then
-                            excludeList[product] = true
-                            hum:EquipTool(product)
-                            task.wait(0.2)
-                            local slot = sInfo.slot
-                            local slotPos = slot:IsA("Attachment") and slot.WorldPosition or slot.Position
-                            root.CFrame = CFrame.new(slotPos + Vector3.new(0, 1.8, 0.8))
-                            task.wait(0.25)
-                            safeFirePrompt(sInfo.prompt)
-                            task.wait(0.35)
-                            stockedAny = true
-                        else
-                            if pref ~= "Otomatis" and not State.KiosUseFallback then
-                                log(("[Kios] Rak %d (%s) kosong: Menunggu stok selesai dimasak/panen."):format(i, pref))
-                            end
-                        end
-                    end
-                end
-            end
-        end
-
-        if stockedAny then
-            log(("Rak Kios berhasil diisi (%d/%d rak aktif)!"):format(slotStats.totalOwned, maxLimit))
-        end
-        return stockedAny
+        return false
     end)
-
-    -- Kembalikan posisi karakter ke posisi awal jika sempat bergeser
-    if savedCFrame and root and root.Parent then
-        local dist = (root.Position - savedCFrame.Position).Magnitude
-        if dist > 3 then
-            root.CFrame = savedCFrame
-        end
-    end
 
     isActionBusy = false
 end
@@ -1860,15 +1707,14 @@ local function autoDagangLoop()
                     local maxLimit = slotStats.maxSlots or #slotStats.slots or 10
                     for i = 1, maxLimit do
                         local sInfo = slotStats.slots[i]
-                        if sInfo and sInfo.owned and sInfo.prompt and sInfo.prompt.Enabled then
+                        if sInfo and sInfo.owned then
                             local pref = getPreferenceForSlot(i)
                             if not pref:find("Jangan Isi") and not pref:find("Kosongkan") and not pref:find("Tunggu") and pref ~= "None" then
+                                local count = sInfo.itemCount or 0
                                 local stok = sInfo.stok
-                                if not stok or #stok:GetChildren() == 0 then
-                                    if findProductByPreference(pref) then
-                                        needStock = true
-                                        break
-                                    end
+                                if count < 9 or (not stok or #stok:GetChildren() == 0) then
+                                    needStock = true
+                                    break
                                 end
                             end
                         end
