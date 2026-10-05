@@ -2796,38 +2796,120 @@ end
 -- ════════════════════════════════════════════════════════════════════════════
 -- 4.2. HELPER SCANNER NPC & BARANG GHAIB MAP
 -- ════════════════════════════════════════════════════════════════════════════
+local function updateDropdown(dd, values, selected)
+    if not dd then return end
+    pcall(function()
+        if dd.Refresh then
+            dd:Refresh(values)
+        elseif dd.SetValues then
+            dd:SetValues(values)
+        end
+        if selected then
+            if dd.Select then
+                dd:Select(selected)
+            elseif dd.SetValue then
+                dd:SetValue(selected)
+            end
+        end
+    end)
+end
+
 local function scanMapNPCs()
     local npcs = {}
-    local npcFolder = Workspace:FindFirstChild("NPC")
-    if npcFolder then
-        for _, obj in ipairs(npcFolder:GetChildren()) do
-            local part = obj:IsA("BasePart") and obj or obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
-            if part then
-                local cleanName = obj.Name
-                if cleanName == "NpcShop" then cleanName = "🏪 Toko Pasar (NpcShop)"
-                elseif cleanName == "NpcBibit" then cleanName = "🌱 Penjual Bibit (NpcBibit)"
-                elseif cleanName == "NpcGerobak" then cleanName = "🛺 Penjual Gerobak (NpcGerobak)"
-                elseif cleanName == "NpcBalaiDagang" then cleanName = "🏛️ Balai Dagang (NpcBalaiDagang)"
-                elseif cleanName == "NpcMisterius" then cleanName = "🧙 Pria Misterius (NpcMisterius)"
-                elseif cleanName == "NpcPetiArwah" then cleanName = "⚰️ Peti Arwah (NpcPetiArwah)"
-                elseif cleanName == "BandarBabi" then cleanName = "🐷 Bandar Babi (BandarBabi)"
-                elseif cleanName == "Genderuwo" then cleanName = "👹 Genderuwo"
-                elseif cleanName == "Kuntilanak" then cleanName = "👰 Kuntilanak"
-                elseif cleanName == "Pocong" then cleanName = "👻 Pocong"
-                elseif cleanName == "Sundel" then cleanName = "💀 Sundel Bolong"
-                elseif cleanName == "Tuyul" then cleanName = "👶 Tuyul"
-                elseif cleanName == "Topeng Setan" then cleanName = "🎭 Topeng Setan"
+    local seen = {}
+
+    local function addNpc(rawName, model, part, customLabel)
+        if not part or seen[model or part] then return end
+        seen[model or part] = true
+        local clean = customLabel or rawName
+        if rawName == "NpcShop" then clean = "🏪 Toko Pasar (NpcShop)"
+        elseif rawName == "NpcBibit" then clean = "🌱 Penjual Bibit (NpcBibit)"
+        elseif rawName == "NpcGerobak" then clean = "🛒 Penjual Gerobak (NpcGerobak)"
+        elseif rawName == "NpcBalaiDagang" then clean = "🏛️ Balai Dagang (NpcBalaiDagang)"
+        elseif rawName == "NpcMisterius" then clean = "🕵️ Pria Misterius (NpcMisterius)"
+        elseif rawName == "NpcPetiArwah" then clean = "📦 Peti Arwah (NpcPetiArwah)"
+        elseif rawName == "BandarBabi" then clean = "🐷 Bandar Babi (BandarBabi)"
+        elseif rawName == "Genderuwo" then clean = "👹 Genderuwo"
+        elseif rawName == "Kuntilanak" then clean = "👻 Kuntilanak"
+        elseif rawName == "Pocong" then clean = "💀 Pocong"
+        elseif rawName == "Sundel" then clean = "🧟 Sundel Bolong"
+        elseif rawName == "Tuyul" then clean = "👶 Tuyul"
+        elseif rawName == "Topeng Setan" then clean = "👺 Topeng Setan"
+        elseif rawName == "PandaiBesi" or rawName == "Tempa" then clean = "🔨 Pandai Besi / Tempa"
+        elseif rawName == "showcase npc" then clean = "🗿 Showcase NPC"
+        end
+
+        local root = getRoot()
+        local dist = root and math.floor((root.Position - part.Position).Magnitude) or 0
+        local labelWithDist = clean .. " [" .. dist .. "m]"
+
+        table.insert(npcs, { name = labelWithDist, cleanName = clean, rawName = rawName, part = part, instance = model or part, dist = dist })
+    end
+
+    -- 1. Folder pencarian khusus
+    local folderNames = { "NPC", "npc", "Npc", "NPCs", "npcs", "Characters", "Spawns", "Map", "Entities", "Bot" }
+    for _, fn in ipairs(folderNames) do
+        local f = Workspace:FindFirstChild(fn)
+        if f then
+            for _, obj in ipairs(f:GetChildren()) do
+                local part = obj:IsA("BasePart") and obj or obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
+                if part then
+                    addNpc(obj.Name, obj, part)
                 end
-                table.insert(npcs, { name = cleanName, rawName = obj.Name, part = part, instance = obj })
             end
         end
     end
-    local sc = Workspace:FindFirstChild("showcase npc")
-    if sc then
-        local part = sc:FindFirstChildWhichIsA("BasePart")
-        if part then table.insert(npcs, { name = "⭐ Showcase NPC", rawName = sc.Name, part = part, instance = sc }) end
+
+    -- 2. Pencarian Recursive Nama NPC Terkenal di seluruh Workspace
+    local knownNpcNames = {
+        "NpcShop", "NpcBibit", "NpcGerobak", "NpcBalaiDagang", "NpcMisterius", "NpcPetiArwah",
+        "BandarBabi", "PandaiBesi", "Tempa", "showcase npc", "Genderuwo", "Kuntilanak",
+        "Pocong", "Sundel", "Tuyul", "Topeng Setan", "Dukun", "Poci", "Satpam", "Pak Kades"
+    }
+    for _, name in ipairs(knownNpcNames) do
+        local found = Workspace:FindFirstChild(name, true)
+        if found then
+            local part = found:IsA("BasePart") and found or found:FindFirstChild("HumanoidRootPart") or found:FindFirstChild("Head") or found:FindFirstChildWhichIsA("BasePart")
+            if part then
+                addNpc(found.Name, found, part)
+            end
+        end
     end
-    table.sort(npcs, function(a, b) return a.name < b.name end)
+
+    -- 3. Pencarian Model yang memiliki Humanoid tapi bukan Pemain
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Model") and not seen[obj] then
+            local isPlayerChar = Players:GetPlayerFromCharacter(obj) ~= nil
+            if not isPlayerChar then
+                local hum = obj:FindFirstChildOfClass("Humanoid")
+                local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
+                if hum and hrp then
+                    addNpc("NPC: " .. obj.Name, obj, hrp)
+                end
+            end
+        end
+    end
+
+    -- 4. Pencarian via ProximityPrompt NPC Dialog / Toko di Map
+    for _, p in ipairs(Workspace:GetDescendants()) do
+        if p:IsA("ProximityPrompt") and p.Enabled then
+            local act = (p.ActionText or ""):lower()
+            local objText = (p.ObjectText or ""):lower()
+            local parentModel = p.Parent and (p.Parent:IsA("Model") and p.Parent or (p.Parent.Parent and p.Parent.Parent:IsA("Model") and p.Parent.Parent or nil))
+            if parentModel and not seen[parentModel] and not Players:GetPlayerFromCharacter(parentModel) then
+                if act:find("bicara") or act:find("tanya") or act:find("beli") or act:find("toko") or act:find("jual")
+                    or objText:find("toko") or objText:find("bibit") or objText:find("pedagang") or objText:find("npc") then
+                    local part = p.Parent:IsA("BasePart") and p.Parent or parentModel:FindFirstChildWhichIsA("BasePart")
+                    if part then
+                        local label = (p.ObjectText ~= "" and p.ObjectText or parentModel.Name)
+                        addNpc(parentModel.Name, parentModel, part, "🗣️ " .. label)
+                    end
+                end
+            end
+        end
+    end
+
+    table.sort(npcs, function(a, b) return a.dist < b.dist end)
     return npcs
 end
 
@@ -6774,7 +6856,7 @@ local function refreshGaibScanner()
             table.insert(currentGaibNames, "Tidak ada barang ghaib terdeteksi")
         end
         if DropdownGaib and DropdownGaib.SetValues then
-            DropdownGaib:SetValues(currentGaibNames)
+            updateDropdown(DropdownGaib, currentGaibNames, currentGaibNames[1])
         end
         if ParaGaibStatus and ParaGaibStatus.SetDesc then
             ParaGaibStatus:SetDesc(("Terdeteksi %d barang/makhluk mistis aktif di map!"):format(#currentGaibList))
@@ -7775,7 +7857,7 @@ SecInspector:Button({
     Desc = "Memperbarui daftar player yang online di server",
     Callback = function()
         pcall(function()
-            DropdownPlayers:SetValues(getOnlinePlayerNames())
+            updateDropdown(DropdownPlayers, getOnlinePlayerNames())
         end)
     end
 })
@@ -8005,7 +8087,7 @@ local function refreshNpcList()
             table.insert(currentNpcNames, "Tidak ada NPC terdeteksi")
         end
         if DropdownNpc and DropdownNpc.SetValues then
-            DropdownNpc:SetValues(currentNpcNames)
+            updateDropdown(DropdownNpc, currentNpcNames, currentNpcNames[1])
         end
     end)
 end
@@ -8111,7 +8193,7 @@ SecTpPlayer:Button({
     Desc = "Perbarui daftar pemain aktif dan jaraknya",
     Callback = function()
         if DropdownTpPlayer and DropdownTpPlayer.SetValues then
-            DropdownTpPlayer:SetValues(getTpPlayerNames())
+            updateDropdown(DropdownTpPlayer, getTpPlayerNames())
         end
     end
 })
@@ -8366,7 +8448,7 @@ SecConfig:Button({
         local ok = saveConfig(target)
         if ok then
             if ddProfileSelect and ddProfileSelect.SetValues then
-                ddProfileSelect:SetValues(configRegistry.profiles)
+                updateDropdown(ddProfileSelect, configRegistry.profiles, configRegistry.activeProfile)
             end
             pcall(function()
                 WindUI:Notify({
@@ -8459,7 +8541,7 @@ SecConfig:Button({
         local ok = deleteConfig(target)
         if ok then
             if ddProfileSelect and ddProfileSelect.SetValues then
-                ddProfileSelect:SetValues(configRegistry.profiles)
+                updateDropdown(ddProfileSelect, configRegistry.profiles, configRegistry.activeProfile)
             end
             pcall(function()
                 WindUI:Notify({
@@ -8495,6 +8577,12 @@ SecConfig:Button({
 
 -- ════════════════════════════════════════════════════════════════════════════
 end
+
+    task.defer(function()
+        task.wait(1)
+        if refreshNpcList then pcall(refreshNpcList) end
+        if refreshGaibList then pcall(refreshGaibList) end
+    end)
 end -- buildAllTabs
 buildAllTabs()
 -- FLOATING MINIMIZE BUBBLE (DRAGGABLE TOGGLE)
