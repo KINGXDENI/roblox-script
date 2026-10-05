@@ -2683,20 +2683,38 @@ local function doExecuteCooking(specificRecipe)
         return false
     end
 
-    -- 3. Teleport sekejap ke dekat kompor dan invoke remote CookStove
-    local savedCFrame = root.CFrame
-    root.CFrame = CFrame.new(komporPos + Vector3.new(0, 2.5, 1.2), komporPos)
-    task.wait(0.25)
-
+    -- 3. Coba panggil remote CookStove langsung dari posisi saat ini tanpa teleport
     local cookedCount = 0
+    local needApproach = false
+    local savedCFrame = nil
+
     for _, rec in ipairs(recipesToCook) do
         local okC, cRes = pcall(function()
             return cookStove:InvokeServer(rec.id)
         end)
+
+        -- Jika remote membutuhkan karakter berada dekat kompor
+        if not (okC and cRes and cRes.ok) and not needApproach then
+            needApproach = true
+            savedCFrame = root.CFrame
+            pcall(function() root.AssemblyLinearVelocity = Vector3.zero end)
+
+            -- Berdiri di lantai depan kompor (sejajar tanah, bukan mengambang di atas kompor)
+            local frontPos = komporPos + Vector3.new(0, 0.2, 2.0)
+            root.CFrame = CFrame.new(frontPos, komporPos)
+            pcall(function() root.AssemblyLinearVelocity = Vector3.zero end)
+            task.wait(0.2)
+
+            -- Coba masak ulang setelah dekat
+            okC, cRes = pcall(function()
+                return cookStove:InvokeServer(rec.id)
+            end)
+        end
+
         if okC and cRes and cRes.ok then
             cookedCount = cookedCount + 1
             log(("[Cook] Memasak %s berhasil! (Antrean: %s/%d)"):format(rec.label, tostring(cRes.queuePos or cookedCount), maxQueue))
-            task.wait(0.25)
+            task.wait(0.2)
         else
             local reason = (cRes and cRes.reason) or "gagal"
             log(("[Cook] Gagal memasak %s: %s"):format(rec.label, tostring(reason)))
@@ -2704,14 +2722,10 @@ local function doExecuteCooking(specificRecipe)
         end
     end
 
-    -- Kembalikan posisi karakter ke posisi sebelumnya
-    if savedCFrame and root and root.Parent then
-        local lahans = getMyLahans()
-        if State.AutoFarm and #lahans > 0 then
-            root.CFrame = CFrame.new(lahans[1].Position + Vector3.new(0, 3.5, 0))
-        else
-            root.CFrame = savedCFrame
-        end
+    -- Kembalikan posisi karakter ke posisi tepat semula secara mulus (tanpa jatuh dari ketinggian)
+    if needApproach and savedCFrame and root and root.Parent then
+        root.CFrame = savedCFrame
+        pcall(function() root.AssemblyLinearVelocity = Vector3.zero end)
     end
     isActionBusy = false
 
