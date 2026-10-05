@@ -449,6 +449,10 @@ local function closeGameGui(guiName, layerName)
 
     for _, d in ipairs(g:GetDescendants()) do
         if d:IsA("GuiButton") and (d.Name:lower():find("close") or d.Name:lower():find("tutup") or d.Name:lower():find("x")) then
+            -- JANGAN PERNAH klik / fire tombol di dalam slot antrean (seperti QSlot di MemasakGui) karena itu tombol cancel pesanan/masakan (CookCancel)!
+            if d:FindFirstAncestor("AntrianPanel") or d:FindFirstAncestor("QSlot") or d:FindFirstAncestor("QueueTemplate") or (d.Parent and d.Parent.Name == "Row" and d.Name == "CloseBtn") then
+                continue
+            end
             pcall(function()
                 if getconnections then
                     for _, ev in ipairs({"Activated", "MouseButton1Click"}) do
@@ -2553,27 +2557,19 @@ end)
 
 local function closeCookingGui(cGui)
     pcall(function()
-        if cGui then
-            for _, d in ipairs(cGui:GetDescendants()) do
-                if (d:IsA("GuiButton") or d:IsA("TextButton") or d:IsA("ImageButton")) and isGuiObjectActuallyVisible(d) then
-                    local nm = d.Name:lower()
-                    local txt = (d:IsA("TextButton") or d:IsA("TextLabel")) and d.Text:lower():gsub("%s+", "") or ""
-                    if nm:find("close") or nm:find("tutup") or nm:find("exit") or nm == "x" or txt == "x" or txt == "close" or txt == "tutup" or txt == "keluar" then
-                        clickGuiElement(d)
-                        task.wait(0.12)
-                        break
-                    end
+        pcall(function()
+            local RS = game:GetService("ReplicatedStorage")
+            local pvMod = RS:FindFirstChild("PopupVisibility")
+            if pvMod then
+                local pv = require(pvMod)
+                if pv and type(pv.Close) == "function" then
+                    pv.Close("Memasak")
+                    pv.Close("Cooking")
                 end
             end
-        end
-        closeGameGui("CookingGui")
-        closeGameGui("MemasakGui")
-        closeGameGui("Cooking")
-        closeGameGui("CookGui")
-        closeGameGui("DapurGui")
-        closeGameGui("Dapur")
-        closeGameGui("CookingUI")
-        closeGameGui("StoveGui")
+        end)
+
+        -- PERINGATAN KRUSIAL: JANGAN PERNAH loop klik tombol di MemasakGui karena QSlot memiliki 'CloseBtn' yang memanggil CookCancel (membatalkan masakan)!
         if cGui and cGui:IsA("ScreenGui") then
             cGui.Enabled = false
             for _, child in ipairs(cGui:GetChildren()) do
@@ -2582,6 +2578,15 @@ local function closeCookingGui(cGui)
                 end
             end
         end
+
+        closeGameGui("CookingGui")
+        closeGameGui("MemasakGui")
+        closeGameGui("Cooking")
+        closeGameGui("CookGui")
+        closeGameGui("DapurGui")
+        closeGameGui("Dapur")
+        closeGameGui("CookingUI")
+        closeGameGui("StoveGui")
     end)
 end
 
