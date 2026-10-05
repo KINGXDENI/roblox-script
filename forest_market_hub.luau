@@ -216,16 +216,62 @@ local function safeFirePrompt(prompt)
         targetPos = parent:GetPivot().Position
     end
 
-    if not targetPos then return false end
-
-    local dist = (root.Position - targetPos).Magnitude
-    local maxDist = prompt.MaxActivationDistance or 8
-    -- Anti-Kick: Karakter WAJIB berada di dalam radius resmi prompt tanpa toleransi lebih
-    if dist > maxDist then
-        return false
+    if targetPos then
+        local dist = (root.Position - targetPos).Magnitude
+        local maxDist = prompt.MaxActivationDistance or 8
+        if dist > (maxDist + 2) then
+            root.CFrame = CFrame.new(targetPos + Vector3.new(0, 1.2, 0))
+            task.wait(0.15)
+        end
     end
 
-    pcall(function() fireproximityprompt(prompt, 0) end)
+    -- Eksekusi ProximityPrompt dengan multi-metode (mendukung tombol E, Tab, maupun Touch/Tap)
+    -- Metode 1: fireproximityprompt bawaan executor
+    if fireproximityprompt then
+        pcall(function() fireproximityprompt(prompt) end)
+        pcall(function() fireproximityprompt(prompt, 0) end)
+        pcall(function() fireproximityprompt(prompt, 1, true) end)
+    end
+
+    -- Metode 2: InputHoldBegin & InputHoldEnd engine Roblox
+    pcall(function()
+        if prompt.InputHoldBegin then
+            prompt:InputHoldBegin()
+            local holdTime = (prompt.HoldDuration and prompt.HoldDuration > 0) and (prompt.HoldDuration + 0.05) or 0.05
+            task.wait(holdTime)
+            prompt:InputHoldEnd()
+        end
+    end)
+
+    -- Metode 3: VirtualInputManager simulasi tombol resmi prompt (Tab / E)
+    pcall(function()
+        local VIM = game:GetService("VirtualInputManager")
+        local key = prompt.KeyboardKeyCode or Enum.KeyCode.E
+        VIM:SendKeyEvent(true, key, false, game)
+        local holdTime = (prompt.HoldDuration and prompt.HoldDuration > 0) and (prompt.HoldDuration + 0.05) or 0.05
+        task.wait(holdTime)
+        VIM:SendKeyEvent(false, key, false, game)
+    end)
+
+    -- Metode 4: Jika tombolnya spesifik Tab atau prompt ActionText mengandung kata Tab / Tap
+    local act = (prompt.ActionText or ""):lower()
+    if prompt.KeyboardKeyCode == Enum.KeyCode.Tab or act:find("tab") or act:find("tap") then
+        pcall(function()
+            local VIM = game:GetService("VirtualInputManager")
+            VIM:SendKeyEvent(true, Enum.KeyCode.Tab, false, game)
+            task.wait(0.05)
+            VIM:SendKeyEvent(false, Enum.KeyCode.Tab, false, game)
+        end)
+    end
+
+    -- Metode 5: Fallback jika parent memiliki ClickDetector
+    pcall(function()
+        local cd = parent:FindFirstChildWhichIsA("ClickDetector", true) or (parent.Parent and parent.Parent:FindFirstChildWhichIsA("ClickDetector"))
+        if cd and fireclickdetector then
+            fireclickdetector(cd)
+        end
+    end)
+
     return true
 end
 
@@ -2230,11 +2276,12 @@ local function autoForageLoop()
             local targets = {}
             for _, o in ipairs(Workspace:GetDescendants()) do
                 if o:IsA("ProximityPrompt") and o.Enabled then
-                    local act = o.ActionText:lower()
-                    local obj = o.ObjectText
-                    local isForage = act:find("ambil") or act:find("petik") or act:find("pungut")
-                    local isGagak  = obj:find("Gagak") or act:find("tangkap")
-                    local isTuyul  = obj:find("Tuyul") or o.Name:find("Tuyul")
+                    local act = (o.ActionText or ""):lower()
+                    local obj = (o.ObjectText or ""):lower()
+                    local oName = o.Name:lower()
+                    local isForage = act:find("ambil") or act:find("petik") or act:find("pungut") or act:find("take") or act:find("pick") or act:find("harvest") or act:find("collect")
+                    local isGagak  = obj:find("gagak") or obj:find("crow") or act:find("tangkap") or act:find("catch")
+                    local isTuyul  = obj:find("tuyul") or oName:find("tuyul")
 
                     local shouldPickup = false
                     if State.AutoForage and isForage and not isGagak and not isTuyul then
@@ -2345,59 +2392,101 @@ local function doSafeLoot(singleTargetName)
     local root = getRoot()
     if not root then return end
 
-    local sb = Workspace:FindFirstChild("SpawnBahan")
-    if not sb then return end
-
     local candidates = {}
-    for _, sp in ipairs(sb:GetChildren()) do
-        local prompt = sp:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if prompt and prompt.Enabled then
-            local obj = prompt.ObjectText:lower()
-            local spName = sp.Name:lower()
-            local allowed = false
+    local seenPrompts = {}
 
-            if singleTargetName then
-                local st = singleTargetName:lower()
-                if obj:find(st) or spName:find(st) then
-                    allowed = true
-                end
-            else
-                -- Periksa toggle individual masing-masing bahan
-                if State.AutoGetGagak and (obj:find("gagak") or spName:find("gagak")) then allowed = true end
-                if State.AutoGetKepiting and (obj:find("kepiting") or spName:find("kepiting")) then allowed = true end
-                if State.AutoGetDupa and (obj:find("dupa") or spName:find("dupa")) then allowed = true end
-                if State.AutoGetKemenyan and (obj:find("kemenyan") or spName:find("kemenyan")) then allowed = true end
-                if State.AutoGetJamur and (obj:find("jamur") or spName:find("jamur")) then allowed = true end
-                if State.AutoGetMelati and (obj:find("melati") or spName:find("melati")) then allowed = true end
+    local function matchItemKey(text, key)
+        text = text:lower()
+        key = key:lower()
+        if key == "kepiting" or key == "crab" then
+            return text:find("kepiting") or text:find("crab")
+        elseif key == "gagak" or key == "crow" then
+            return text:find("gagak") or text:find("crow")
+        elseif key == "dupa" or key == "incense" or key == "kemenyan" then
+            return (text:find("dupa") or text:find("incense") or text:find("kemenyan")) and not text:find("frankincense")
+        elseif key == "jamur" or key == "mushroom" then
+            return text:find("jamur") or text:find("mushroom")
+        elseif key == "melati" or key == "jasmine" then
+            return text:find("melati") or text:find("jasmine") or text:find("flower")
+        end
+        return text:find(key) ~= nil
+    end
 
-                -- Master AutoSafeLoot sesuai LootTarget dropdown
-                if State.AutoSafeLoot then
-                    if State.LootTarget == "Semua" then
-                        allowed = true
-                    elseif State.LootTarget == "Kepiting" and obj:find("kepiting") then
-                        allowed = true
-                    elseif State.LootTarget == "Jamur" and obj:find("jamur") then
-                        allowed = true
-                    elseif State.LootTarget == "Melati" and obj:find("melati") then
-                        allowed = true
-                    elseif State.LootTarget == "Gagak" and obj:find("gagak") then
-                        allowed = true
-                    elseif State.LootTarget == "Dupa" and obj:find("dupa") then
-                        allowed = true
-                    elseif State.LootTarget == "Kemenyan" and obj:find("kemenyan") then
-                        allowed = true
-                    end
+    local function checkCandidate(prompt, container)
+        if not prompt or not prompt.Enabled or seenPrompts[prompt] then return end
+        local obj = (prompt.ObjectText or ""):lower()
+        local act = (prompt.ActionText or ""):lower()
+        local nameStr = (container and container.Name:lower() or "") .. " " .. (prompt.Parent and prompt.Parent.Name:lower() or "")
+        local combined = obj .. " " .. act .. " " .. nameStr
+
+        local allowed = false
+        if singleTargetName then
+            allowed = matchItemKey(combined, singleTargetName)
+        else
+            if State.AutoGetGagak and matchItemKey(combined, "gagak") then allowed = true end
+            if State.AutoGetKepiting and matchItemKey(combined, "kepiting") then allowed = true end
+            if State.AutoGetDupa and matchItemKey(combined, "dupa") then allowed = true end
+            if State.AutoGetKemenyan and matchItemKey(combined, "kemenyan") then allowed = true end
+            if State.AutoGetJamur and matchItemKey(combined, "jamur") then allowed = true end
+            if State.AutoGetMelati and matchItemKey(combined, "melati") then allowed = true end
+
+            if State.AutoSafeLoot then
+                if State.LootTarget == "Semua" then
+                    allowed = matchItemKey(combined, "kepiting")
+                        or matchItemKey(combined, "gagak")
+                        or matchItemKey(combined, "dupa")
+                        or matchItemKey(combined, "jamur")
+                        or matchItemKey(combined, "melati")
+                else
+                    allowed = matchItemKey(combined, State.LootTarget)
                 end
             end
+        end
 
-            if allowed then
-                local targetPart = (prompt.Parent and prompt.Parent:IsA("BasePart") and prompt.Parent) 
-                    or sp:FindFirstChildWhichIsA("BasePart", true) 
-                    or (sp:IsA("BasePart") and sp)
-                if targetPart then
-                    local dist = (root.Position - targetPart.Position).Magnitude
-                    table.insert(candidates, { prompt = prompt, part = targetPart, dist = dist, name = prompt.ObjectText })
-                end
+        if allowed then
+            local targetPart = (prompt.Parent and prompt.Parent:IsA("BasePart") and prompt.Parent)
+                or (container and container:FindFirstChildWhichIsA("BasePart", true))
+                or (container and container:IsA("BasePart") and container)
+                or (prompt.Parent and prompt.Parent:IsA("Model") and (prompt.Parent.PrimaryPart or prompt.Parent:FindFirstChildWhichIsA("BasePart")))
+            if targetPart then
+                seenPrompts[prompt] = true
+                local dist = (root.Position - targetPart.Position).Magnitude
+                table.insert(candidates, { prompt = prompt, part = targetPart, dist = dist, name = prompt.ObjectText })
+            end
+        end
+    end
+
+    -- 1. Scan folder container umum jika ada
+    local foldersToScan = {
+        Workspace:FindFirstChild("SpawnBahan"),
+        Workspace:FindFirstChild("Kepiting"),
+        Workspace:FindFirstChild("Crabs"),
+        Workspace:FindFirstChild("Crab"),
+        Workspace:FindFirstChild("Sungai"),
+        Workspace:FindFirstChild("River"),
+        Workspace:FindFirstChild("Animals"),
+        Workspace:FindFirstChild("Hewan"),
+        Workspace:FindFirstChild("Gagak"),
+        Workspace:FindFirstChild("Crow"),
+        Workspace:FindFirstChild("Spawn"),
+        Workspace:FindFirstChild("Items"),
+        Workspace:FindFirstChild("Bahan"),
+    }
+
+    for _, f in ipairs(foldersToScan) do
+        if f then
+            for _, child in ipairs(f:GetChildren()) do
+                local p = child:FindFirstChildWhichIsA("ProximityPrompt", true) or (child:IsA("ProximityPrompt") and child)
+                if p then checkCandidate(p, child) end
+            end
+        end
+    end
+
+    -- 2. Jika belum ditemukan kandidat, scan seluruh Workspace Descendants
+    if #candidates == 0 then
+        for _, p in ipairs(Workspace:GetDescendants()) do
+            if p:IsA("ProximityPrompt") and p.Enabled then
+                checkCandidate(p, p.Parent)
             end
         end
     end
@@ -2407,14 +2496,14 @@ local function doSafeLoot(singleTargetName)
 
     isActionBusy = true
     local oldPos = root.Position
-    local takeCount = singleTargetName and 1 or math.min(2, #candidates)
+    local takeCount = singleTargetName and 1 or math.min(3, #candidates)
     for i = 1, takeCount do
         local target = candidates[i]
         if target.prompt and target.prompt.Enabled and target.prompt.Parent then
-            root.CFrame = CFrame.new(target.part.Position + Vector3.new(0, 2, 0))
+            root.CFrame = CFrame.new(target.part.Position + Vector3.new(0, 1.2, 0))
             task.wait(0.2)
             safeFirePrompt(target.prompt)
-            task.wait(0.3)
+            task.wait(0.35)
         end
     end
 
