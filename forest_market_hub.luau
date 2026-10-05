@@ -63,12 +63,20 @@ local State = {
     MinCoinReserve  = 100,   -- Batas minimal koin cadangan agar tidak boncos
 
     -- Dagang & Kios
-    AutoDagang      = false,
-    AutoSellBabi    = false,
-    AutoSellMarket  = false,
-    AutoOlahGagak   = false,
-    AutoOlahAyam    = false,
-    AutoOlahKopi    = false,
+    AutoDagang         = false,
+    AutoSellBabi       = false,
+    AutoGosokBabi      = false,
+    AutoFeedBabi       = false,
+    AutoCraftPakanBabi = false,
+    AutoFeedAllTernak  = false,
+    AutoBabiGuling     = false,
+    FilterBabiPanggang = "Hanya Babi Biasa (Non-Varian)",
+    FilterBabiJual     = "Simpan Varian Langka/Imut",
+    GosokBabiDelay     = 4,
+    AutoSellMarket     = false,
+    AutoOlahGagak      = false,
+    AutoOlahAyam       = false,
+    AutoOlahKopi       = false,
 
     -- Konfigurasi Khusus Box / Rak Dagangan (Slot 1 - 10 Seamless)
     KiosStrategy    = "Otomatis (Semua Rak)", -- Seamless Strategy: "Otomatis (Semua Rak)", "Fokus Crab Satay", "Fokus Kopi Kemenyan", "Fokus Kentang", "Kustom Per-Rak"
@@ -119,14 +127,16 @@ local State = {
     LootTarget      = "Semua",
     AutoReconnect   = false,
 
-    -- Auto Get Bahan Gratis Individual
-    AutoGetGagak    = false,
-    AutoGetKepiting = false,
-    AutoGetDupa     = false,
-    AutoGetKemenyan = false,
-    AutoGetJamur    = false,
-    AutoGetMelati   = false,
-    AutoLootDelay   = 5,
+    -- Auto Get Bahan Gratis Individual & Jeda Ambil
+    AutoGetGagak       = false,
+    AutoGetKepiting    = false,
+    AutoGetDupa        = false,
+    AutoGetKemenyan    = false,
+    AutoGetJamur       = false,
+    AutoGetMelati      = false,
+    AutoLootDelay      = 5,
+    ForagePickupDelay  = 0.35, -- Jeda waktu antar ambil item bahan mentah (Detik)
+    ForageLoopInterval = 3,    -- Jeda loop penyapuan bahan mentah map (Detik)
 
     -- Quest & Misi Harian
     AutoClaimQuest  = false,
@@ -2300,13 +2310,31 @@ local function doSellBabiBatch()
     for _, babi in ipairs(info.ternak) do
         -- Jangan jual babi yang dikunci atau sedang bunting
         if not babi.kunci and not babi.bunting then
-            table.insert(ids, babi.id)
-            totalEstimasi = totalEstimasi + (tonumber(babi.harga) or 0)
+            local allow = true
+            local filter = State.FilterBabiJual or "Simpan Varian Langka/Imut"
+            if filter == "Simpan Varian Langka/Imut" then
+                if babi.imut or (babi.varian and babi.varian ~= "" and babi.varian ~= "biasa") then
+                    allow = false
+                end
+            elseif filter == "Simpan Induk Betina" then
+                if babi.kelamin == "betina" or babi.jenis ~= "ternak" then
+                    allow = false
+                end
+            elseif filter == "Hanya Babi Biasa Dewasa" then
+                if not babi.dewasa or babi.imut or (babi.varian and babi.varian ~= "" and babi.varian ~= "biasa") then
+                    allow = false
+                end
+            end
+
+            if allow then
+                table.insert(ids, babi.id)
+                totalEstimasi = totalEstimasi + (tonumber(babi.harga) or 0)
+            end
         end
     end
 
     if #ids == 0 then
-        return false, "Tidak ada babi siap jual (semua terkunci / bunting)"
+        return false, "Tidak ada babi siap jual sesuai filter (semua tersaring / terkunci / bunting)"
     end
 
     local ok2, res = pcall(function()
@@ -2338,6 +2366,515 @@ local function autoSellBabiLoop()
         end
         sellBabiRunning = false
     end)
+end
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- 4.1. RAWAT BABI (GOSOK & PALUNG PAKAN)
+-- ════════════════════════════════════════════════════════════════════════════
+local function getMyKandangBabi()
+    local kandang = Workspace:FindFirstChild("KandangBabi_" .. LP.UserId)
+    if kandang then return kandang end
+    local myLahans = getMyLahans()
+    if #myLahans > 0 then
+        local plot = myLahans[1].Parent
+        if plot then
+            local kb = plot:FindFirstChild("KandangBabi", true)
+            if kb and kb:IsA("Model") then return kb end
+        end
+    end
+    return nil
+end
+
+local function equipToolByNameOrSubstr(substr)
+    local char = LP.Character
+    if not char then return false end
+    substr = substr:lower()
+    for _, t in ipairs(char:GetChildren()) do
+        if t:IsA("Tool") and t.Name:lower():find(substr) then
+            return true, t
+        end
+    end
+    local bp = LP:FindFirstChild("Backpack")
+    if bp then
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") and t.Name:lower():find(substr) then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum:EquipTool(t)
+                    task.wait(0.2)
+                    return true, t
+                end
+            end
+        end
+    end
+    return false, nil
+end
+
+local function equipAnyFoodTool()
+    local char = LP.Character
+    if not char then return false end
+    for _, t in ipairs(char:GetChildren()) do
+        if t:IsA("Tool") and not t.Name:lower():find("pengosok") and not t.Name:lower():find("beliung") and not t.Name:lower():find("arit") and not t.Name:lower():find("cangkul") and not t.Name:lower():find("penyiram") then
+            return true, t
+        end
+    end
+    local bp = LP:FindFirstChild("Backpack")
+    if bp then
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") and not t.Name:lower():find("pengosok") and not t.Name:lower():find("beliung") and not t.Name:lower():find("arit") and not t.Name:lower():find("cangkul") and not t.Name:lower():find("penyiram") then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum:EquipTool(t)
+                    task.wait(0.2)
+                    return true, t
+                end
+            end
+        end
+    end
+    return false, nil
+end
+
+local function doGosokBabi()
+    local root = getRoot()
+    if not root then return false, "Karakter tidak siap" end
+    local kandang = getMyKandangBabi()
+    if not kandang then return false, "Kandang babi belum dibuat / tidak ditemukan" end
+
+    local targets = {}
+    for _, d in ipairs(kandang:GetDescendants()) do
+        if d:IsA("ProximityPrompt") and d.Enabled then
+            local act = (d.ActionText or ""):lower()
+            local obj = (d.ObjectText or ""):lower()
+            if act:find("gosok") or obj:find("kotor") then
+                local part = d.Parent:IsA("BasePart") and d.Parent or (d.Parent.Parent and d.Parent.Parent:IsA("BasePart") and d.Parent.Parent or nil)
+                if part then
+                    table.insert(targets, { prompt = d, part = part })
+                end
+            end
+        end
+    end
+
+    if #targets == 0 then
+        return false, "Semua babi di kandang sudah bersih!"
+    end
+
+    local equipped, tool = equipToolByNameOrSubstr("pengosok")
+    if not equipped then
+        local rem = getR("BabiBandar")
+        if rem then
+            pcall(function() rem:InvokeServer("beliPenggosok") end)
+            task.wait(0.4)
+            equipped = equipToolByNameOrSubstr("pengosok")
+        end
+    end
+
+    if not equipped then
+        return false, "Belum punya Alat Penggosok! Beli dulu di Bandar Babi."
+    end
+
+    local oldPos = root.Position
+    local cleanedCount = 0
+    for _, t in ipairs(targets) do
+        if not State.AutoGosokBabi and not State._ManualGosok then break end
+        if t.prompt and t.prompt.Enabled and t.part and t.part.Parent then
+            root.CFrame = CFrame.new(t.part.Position + Vector3.new(0, 2, 0))
+            task.wait(0.2)
+            safeFirePrompt(t.prompt)
+            task.wait(t.prompt.HoldDuration > 0 and (t.prompt.HoldDuration + 0.3) or 0.35)
+            cleanedCount = cleanedCount + 1
+        end
+    end
+
+    root.CFrame = CFrame.new(oldPos)
+    log(("✨ Selesai menggosok %d babi kotor!"):format(cleanedCount))
+    return true, cleanedCount
+end
+
+local function doIsiPalungBabi()
+    local root = getRoot()
+    if not root then return false, "Karakter tidak siap" end
+    local kandang = getMyKandangBabi()
+    if not kandang then return false, "Kandang babi belum dibuat / tidak ditemukan" end
+
+    local targetPrompt, targetPart
+    for _, d in ipairs(kandang:GetDescendants()) do
+        if d:IsA("ProximityPrompt") and d.Enabled then
+            local act = (d.ActionText or ""):lower()
+            local obj = (d.ObjectText or ""):lower()
+            if act:find("palung") or act:find("isi") or obj:find("makan") then
+                local part = d.Parent:IsA("BasePart") and d.Parent or (d.Parent.Parent and d.Parent.Parent:IsA("BasePart") and d.Parent.Parent or nil)
+                if part then
+                    targetPrompt = d
+                    targetPart = part
+                    break
+                end
+            end
+        end
+    end
+
+    if not targetPrompt then
+        return false, "Palung makan sudah penuh / tidak butuh isi."
+    end
+
+    local equipped, tool = equipAnyFoodTool()
+    if not equipped then
+        return false, "Tidak ada pakan / masakan di tas untuk mengisi palung!"
+    end
+
+    local oldPos = root.Position
+    root.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 2, 0))
+    task.wait(0.2)
+    safeFirePrompt(targetPrompt)
+    task.wait(targetPrompt.HoldDuration > 0 and (targetPrompt.HoldDuration + 0.3) or 0.4)
+    root.CFrame = CFrame.new(oldPos)
+    log("🥣 Berhasil mengisi palung pakan babi!")
+    return true, "Palung diisi"
+end
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- 4.1.B. AUTO BUAT PAKAN & BERI MAKAN TERNAK LAIN (AYAM & SAPI)
+-- ════════════════════════════════════════════════════════════════════════════
+local function hasPakanBabiInBag()
+    local validPakan = { "sate kepiting", "satekepiting", "pisang raja rebus", "pisangrajarebus", "tumis kamboja", "tumiskamboja", "sate gagak", "sategagak", "jamur rebus", "jamurrebus" }
+    for _, cont in ipairs({LP.Character, LP.Backpack}) do
+        if cont then
+            for _, t in ipairs(cont:GetChildren()) do
+                if t:IsA("Tool") then
+                    local nm = t.Name:lower()
+                    for _, p in ipairs(validPakan) do
+                        if nm:find(p) then return true, t end
+                    end
+                end
+            end
+        end
+    end
+    return false, nil
+end
+
+local function doCraftPakanBabiIfNeeded()
+    local hasFood, tool = hasPakanBabiInBag()
+    if hasFood then return true, tool end
+
+    local kepitingCount = countItemInBag("kepiting")
+    local gagakCount = countItemInBag("gagak") or countItemInBag("daging gagak")
+    local jamurCount = countItemInBag("jamur")
+
+    if kepitingCount > 0 then
+        log("[Pakan Babi] Memasak Sate Kepiting di kompor untuk pakan babi...")
+        pcall(function() doExecuteCooking("CrabSatay") end)
+    elseif gagakCount > 0 then
+        log("[Pakan Babi] Memasak Sate Gagak di kompor untuk pakan babi...")
+        pcall(function() doExecuteCooking("SateGagak") end)
+    elseif jamurCount > 0 then
+        log("[Pakan Babi] Memasak Jamur Rebus di kompor untuk pakan babi...")
+        pcall(function() doExecuteCooking("JamurRebus") end)
+    end
+    task.wait(1)
+    return hasPakanBabiInBag()
+end
+
+local function doIsiPalungTernakLain()
+    local root = getRoot()
+    if not root then return false end
+
+    local targets = {}
+    local ka = Workspace:FindFirstChild("KandangAyam_" .. LP.UserId)
+    if ka then table.insert(targets, { name = "Ayam", kandang = ka }) end
+    local ks = Workspace:FindFirstChild("KandangSapi_" .. LP.UserId)
+    if ks then table.insert(targets, { name = "Sapi", kandang = ks }) end
+
+    if #targets == 0 then return false, "Kandang ayam/sapi belum ada" end
+
+    local hasJagung, jagungTool = equipToolByNameOrSubstr("jagung")
+    if not hasJagung then
+        return false, "Tidak ada Jagung di tas untuk pakan ayam/sapi"
+    end
+
+    local oldPos = root.Position
+    local filled = 0
+    for _, t in ipairs(targets) do
+        for _, d in ipairs(t.kandang:GetDescendants()) do
+            if d:IsA("ProximityPrompt") and d.Enabled then
+                local act = (d.ActionText or ""):lower()
+                local obj = (d.ObjectText or ""):lower()
+                if act:find("palung") or act:find("isi") or act:find("makan") or obj:find("makan") then
+                    local part = d.Parent:IsA("BasePart") and d.Parent or (d.Parent.Parent and d.Parent.Parent:IsA("BasePart") and d.Parent.Parent or nil)
+                    if part then
+                        root.CFrame = CFrame.new(part.Position + Vector3.new(0, 2, 0))
+                        task.wait(0.2)
+                        equipToolByNameOrSubstr("jagung")
+                        safeFirePrompt(d)
+                        task.wait(d.HoldDuration > 0 and (d.HoldDuration + 0.3) or 0.4)
+                        filled = filled + 1
+                    end
+                end
+            end
+        end
+    end
+    root.CFrame = CFrame.new(oldPos)
+    if filled > 0 then
+        log(("🌾 Berhasil mengisi %d palung pakan ternak (Ayam/Sapi)!"):format(filled))
+    end
+    return true, filled
+end
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- 4.1.C. AUTO BABI GULING (PEMANGANG KIOS LV6+) BERDASARKAN JENIS
+-- ════════════════════════════════════════════════════════════════════════════
+local function findPemangangStation()
+    local myKios = getMyKios()
+    if myKios then
+        local p = myKios:FindFirstChild("Pemangang", true) or myKios:FindFirstChild("pPangang", true)
+        if p then return p end
+    end
+    local ka = Workspace:FindFirstChild("KiosAktif")
+    if ka then
+        for _, k in ipairs(ka:GetChildren()) do
+            local p = k:FindFirstChild("Pemangang", true) or k:FindFirstChild("pPangang", true)
+            if p then return p end
+        end
+    end
+    return nil
+end
+
+local function isBabiAllowedToRoast(babiData, filterChoice)
+    if not babiData then return false end
+    if babiData.bunting or babiData.kunci then return false end
+
+    local berat = tonumber(babiData.berat) or 0
+    if berat < 30 and babiData.dewasa ~= true then return false end
+
+    filterChoice = filterChoice or State.FilterBabiPanggang or "Hanya Babi Biasa (Non-Varian)"
+    if filterChoice == "Hanya Babi Biasa (Non-Varian)" then
+        if babiData.imut or (babiData.varian and babiData.varian ~= "" and babiData.varian ~= "biasa") then
+            return false
+        end
+        return true
+    elseif filterChoice == "Semua Babi Dewasa (Berat >= 30kg)" then
+        return berat >= 30
+    end
+    return true
+end
+
+local function doPanggangBabiGuling()
+    local root = getRoot()
+    if not root then return false, "Karakter belum siap" end
+
+    local station = findPemangangStation()
+    if not station then
+        return false, "Mesin Pemangang tidak ditemukan (Upgrade Kios ke Level 6 dulu)"
+    end
+
+    -- Cek apakah ada babi guling yang sudah matang dan siap diambil
+    for _, d in ipairs(station:GetDescendants()) do
+        if d:IsA("ProximityPrompt") and d.Enabled then
+            local act = (d.ActionText or ""):lower()
+            local obj = (d.ObjectText or ""):lower()
+            if act:find("ambil") or obj:find("guling") or act:find("guling") then
+                local part = d.Parent:IsA("BasePart") and d.Parent or station:FindFirstChildWhichIsA("BasePart", true)
+                if part then
+                    root.CFrame = CFrame.new(part.Position + Vector3.new(0, 2, 0))
+                    task.wait(0.25)
+                    safeFirePrompt(d)
+                    task.wait(0.35)
+                    log("🍖 Babi Guling matang berhasil diambil ke tas!")
+                    WindUI:Notify({ Title = "🍖 Babi Guling", Desc = "Babi Guling matang berhasil diambil ke tas!", Duration = 4, Icon = "sparkles" })
+                    return true, "Ambil Babi Guling"
+                end
+            end
+        end
+    end
+
+    if station:GetAttribute("Memanggang") == true then
+        return false, "Pemangang sedang memanggang babi lain..."
+    end
+
+    local kandang = getMyKandangBabi()
+    if not kandang then return false, "Kandang babi tidak ditemukan" end
+
+    local rem = getR("BabiBandar")
+    local ternakData = {}
+    if rem then
+        local ok, info = pcall(function() return rem:InvokeServer("info") end)
+        if ok and type(info) == "table" and info.ternak then
+            for _, b in ipairs(info.ternak) do
+                ternakData[b.id] = b
+            end
+        end
+    end
+
+    local candidatePrompt, candidatePart
+    for _, child in ipairs(kandang:GetChildren()) do
+        if child.Name:find("Babi_") then
+            local babiId = child.Name:gsub("Babi_", "")
+            local bData = ternakData[babiId]
+            local isAllowed = false
+            if bData then
+                isAllowed = isBabiAllowedToRoast(bData, State.FilterBabiPanggang)
+            else
+                isAllowed = true
+            end
+
+            if isAllowed then
+                for _, d in ipairs(child:GetDescendants()) do
+                    if d:IsA("ProximityPrompt") and d.Enabled then
+                        local act = (d.ActionText or ""):lower()
+                        if act:find("bawa") or act:find("angkat") then
+                            local part = d.Parent:IsA("BasePart") and d.Parent or child:FindFirstChildWhichIsA("BasePart", true)
+                            if part then
+                                candidatePrompt = d
+                                candidatePart = part
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+            if candidatePrompt then break end
+        end
+    end
+
+    if not candidatePrompt then
+        return false, "Tidak ada babi yang memenuhi syarat filter untuk dipanggang saat ini."
+    end
+
+    local oldPos = root.Position
+    root.CFrame = CFrame.new(candidatePart.Position + Vector3.new(0, 2, 0))
+    task.wait(0.2)
+    safeFirePrompt(candidatePrompt)
+    task.wait(0.35)
+
+    local stationPart = station:IsA("BasePart") and station or station:FindFirstChildWhichIsA("BasePart", true)
+    if stationPart then
+        root.CFrame = CFrame.new(stationPart.Position + Vector3.new(0, 2, 0))
+        task.wait(0.25)
+        for _, d in ipairs(station:GetDescendants()) do
+            if d:IsA("ProximityPrompt") and d.Enabled then
+                local act = (d.ActionText or ""):lower()
+                if act:find("panggang") or act:find("masak") or act:find("babi") then
+                    safeFirePrompt(d)
+                    task.wait(d.HoldDuration > 0 and (d.HoldDuration + 0.3) or 0.4)
+                    log("🔥 Babi berhasil dimasukkan ke Pemangang! Mulai proses Babi Guling.")
+                    WindUI:Notify({ Title = "🔥 Babi Guling", Desc = "Babi berhasil dipanggang! Tunggu hingga matang.", Duration = 4, Icon = "flame" })
+                    root.CFrame = CFrame.new(oldPos)
+                    return true, "Dipanggang"
+                end
+            end
+        end
+    end
+    root.CFrame = CFrame.new(oldPos)
+    return false, "Gagal memicu prompt pemangang"
+end
+
+local rawatBabiRunning = false
+local function autoRawatBabiLoop()
+    if rawatBabiRunning then return end
+    rawatBabiRunning = true
+    task.spawn(function()
+        while State.AutoGosokBabi or State.AutoFeedBabi or State.AutoFeedAllTernak or State.AutoBabiGuling or State.AutoCraftPakanBabi do
+            if State.AutoGosokBabi then
+                pcall(doGosokBabi)
+            end
+            if State.AutoCraftPakanBabi then
+                pcall(doCraftPakanBabiIfNeeded)
+            end
+            if State.AutoFeedBabi then
+                pcall(doIsiPalungBabi)
+            end
+            if State.AutoFeedAllTernak then
+                pcall(doIsiPalungTernakLain)
+            end
+            if State.AutoBabiGuling then
+                pcall(doPanggangBabiGuling)
+            end
+            task.wait(State.GosokBabiDelay or 4)
+        end
+        rawatBabiRunning = false
+    end)
+end
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- 4.2. HELPER SCANNER NPC & BARANG GHAIB MAP
+-- ════════════════════════════════════════════════════════════════════════════
+local function scanMapNPCs()
+    local npcs = {}
+    local npcFolder = Workspace:FindFirstChild("NPC")
+    if npcFolder then
+        for _, obj in ipairs(npcFolder:GetChildren()) do
+            local part = obj:IsA("BasePart") and obj or obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
+            if part then
+                local cleanName = obj.Name
+                if cleanName == "NpcShop" then cleanName = "🏪 Toko Pasar (NpcShop)"
+                elseif cleanName == "NpcBibit" then cleanName = "🌱 Penjual Bibit (NpcBibit)"
+                elseif cleanName == "NpcGerobak" then cleanName = "🛺 Penjual Gerobak (NpcGerobak)"
+                elseif cleanName == "NpcBalaiDagang" then cleanName = "🏛️ Balai Dagang (NpcBalaiDagang)"
+                elseif cleanName == "NpcMisterius" then cleanName = "🧙 Pria Misterius (NpcMisterius)"
+                elseif cleanName == "NpcPetiArwah" then cleanName = "⚰️ Peti Arwah (NpcPetiArwah)"
+                elseif cleanName == "BandarBabi" then cleanName = "🐷 Bandar Babi (BandarBabi)"
+                elseif cleanName == "Genderuwo" then cleanName = "👹 Genderuwo"
+                elseif cleanName == "Kuntilanak" then cleanName = "👰 Kuntilanak"
+                elseif cleanName == "Pocong" then cleanName = "👻 Pocong"
+                elseif cleanName == "Sundel" then cleanName = "💀 Sundel Bolong"
+                elseif cleanName == "Tuyul" then cleanName = "👶 Tuyul"
+                elseif cleanName == "Topeng Setan" then cleanName = "🎭 Topeng Setan"
+                end
+                table.insert(npcs, { name = cleanName, rawName = obj.Name, part = part, instance = obj })
+            end
+        end
+    end
+    local sc = Workspace:FindFirstChild("showcase npc")
+    if sc then
+        local part = sc:FindFirstChildWhichIsA("BasePart")
+        if part then table.insert(npcs, { name = "⭐ Showcase NPC", rawName = sc.Name, part = part, instance = sc }) end
+    end
+    table.sort(npcs, function(a, b) return a.name < b.name end)
+    return npcs
+end
+
+local function scanMapBarangGhaib()
+    local gaibs = {}
+    local root = getRoot()
+    local myPos = root and root.Position or Vector3.new(0, 0, 0)
+
+    for _, o in ipairs(Workspace:GetDescendants()) do
+        if o:IsA("ProximityPrompt") and o.Enabled then
+            local act = (o.ActionText or ""):lower()
+            local obj = (o.ObjectText or ""):lower()
+            local pName = o.Parent and o.Parent.Name:lower() or ""
+
+            local isGaib = obj:find("dupa") or obj:find("kemenyan") or obj:find("jamur") or obj:find("melati")
+                or obj:find("gagak") or obj:find("tuyul") or obj:find("arwah") or obj:find("pusaka")
+                or pName:find("dupa") or pName:find("kemenyan") or pName:find("jamur")
+                or pName:find("tuyul") or pName:find("gagak")
+
+            if isGaib then
+                local part = o.Parent:IsA("BasePart") and o.Parent or (o.Parent:IsA("Attachment") and o.Parent.Parent:IsA("BasePart") and o.Parent.Parent or nil)
+                if part then
+                    local dist = math.floor((myPos - part.Position).Magnitude)
+                    local label = (o.ObjectText ~= "" and o.ObjectText or o.Parent.Name) .. " (" .. dist .. "m)"
+                    table.insert(gaibs, { label = label, name = o.ObjectText, prompt = o, part = part, dist = dist, type = "Item" })
+                end
+            end
+        end
+    end
+
+    local npcFolder = Workspace:FindFirstChild("NPC")
+    if npcFolder then
+        local ghosts = { "Tuyul", "Genderuwo", "Kuntilanak", "Pocong", "Sundel", "Topeng Setan", "NpcMisterius", "NpcPetiArwah" }
+        for _, gName in ipairs(ghosts) do
+            local g = npcFolder:FindFirstChild(gName)
+            if g then
+                local part = g:FindFirstChild("HumanoidRootPart") or g:FindFirstChild("Head") or g:FindFirstChildWhichIsA("BasePart")
+                if part then
+                    local dist = math.floor((myPos - part.Position).Magnitude)
+                    table.insert(gaibs, { label = "👻 " .. gName .. " (" .. dist .. "m)", name = gName, part = part, dist = dist, type = "Makhluk" })
+                end
+            end
+        end
+    end
+
+    table.sort(gaibs, function(a, b) return a.dist < b.dist end)
+    return gaibs
 end
 
 local function isGuiObjectActuallyVisible(obj)
@@ -3250,9 +3787,10 @@ local function autoForageLoop()
                     local item = targets[i]
                     if item.prompt and item.prompt.Enabled and item.part and item.part.Parent then
                         root.CFrame = CFrame.new(item.part.Position + Vector3.new(0, 2, 0))
-                        task.wait(0.25)
+                        local pDelay = State.ForagePickupDelay or 0.35
+                        task.wait(math.max(0.05, pDelay * 0.4))
                         safeFirePrompt(item.prompt)
-                        task.wait(0.35)
+                        task.wait(math.max(0.08, pDelay))
                     end
                 end
 
@@ -3264,7 +3802,7 @@ local function autoForageLoop()
                 end
             end
 
-            task.wait(3)
+            task.wait(State.ForageLoopInterval or 3)
         end
         forageRunning = false
     end)
@@ -3297,9 +3835,10 @@ local function sweepAllForagables()
     for _, item in ipairs(targets) do
         if item.prompt and item.prompt.Enabled and item.part and item.part.Parent then
             root.CFrame = CFrame.new(item.part.Position + Vector3.new(0, 2, 0))
-            task.wait(0.25)
+            local pDelay = State.ForagePickupDelay or 0.35
+            task.wait(math.max(0.05, pDelay * 0.4))
             safeFirePrompt(item.prompt)
-            task.wait(0.35)
+            task.wait(math.max(0.08, pDelay))
         end
     end
 
@@ -6066,6 +6605,22 @@ SecTangkapAuto:Toggle({
     Callback = function(v) State.AutoFastTuyul = v end
 })
 
+SecTangkapAuto:Slider({
+    Title = "⏱️ Jeda Ambil Per-Item (Detik)",
+    Desc = "Kecepatan jeda waktu saat memungut tiap barang mentah di map",
+    Step = 0.05,
+    Value = { Min = 0.05, Max = 2.0, Default = State.ForagePickupDelay or 0.35 },
+    Callback = function(v) State.ForagePickupDelay = v end
+})
+
+SecTangkapAuto:Slider({
+    Title = "⏱️ Jeda Loop Pengecekan Map (Detik)",
+    Desc = "Interval jeda waktu sebelum menyapu map berikutnya",
+    Step = 1,
+    Value = { Min = 1, Max = 20, Default = State.ForageLoopInterval or 3 },
+    Callback = function(v) State.ForageLoopInterval = v end
+})
+
 local SecSafeLoot = TabTangkap:Section({ Title = "Auto-Ambil Bahan Gratis (Individual & Aman)" })
 
 SecSafeLoot:Toggle({
@@ -6179,6 +6734,105 @@ SecQuickGet:Button({
 SecQuickGet:Button({
     Title = "🌸 Ambil 1x Melati Terdekat",
     Callback = function() task.spawn(function() doSafeLoot("Melati") end) end
+})
+
+local SecGaibScan = TabTangkap:Section({ Title = "👻 Scanner & Radar Barang Ghaib" })
+local ParaGaibStatus = SecGaibScan:Paragraph({
+    Title = "Status Entitas & Barang Ghaib",
+    Desc = "Memindai map...",
+})
+
+local currentGaibList = {}
+local currentGaibNames = { "Tekan Refresh..." }
+local selectedGaibIndex = 1
+
+local DropdownGaib = SecGaibScan:Dropdown({
+    Title = "Pilih Barang / Entitas Ghaib",
+    Values = currentGaibNames,
+    Value = currentGaibNames[1],
+    Callback = function(v)
+        for i, item in ipairs(currentGaibList) do
+            if item.label == v then
+                selectedGaibIndex = i
+                break
+            end
+        end
+    end
+})
+
+local function refreshGaibScanner()
+    task.spawn(function()
+        currentGaibList = scanMapBarangGhaib()
+        currentGaibNames = {}
+        for _, item in ipairs(currentGaibList) do
+            table.insert(currentGaibNames, item.label)
+        end
+        if #currentGaibNames == 0 then
+            table.insert(currentGaibNames, "Tidak ada barang ghaib terdeteksi")
+        end
+        if DropdownGaib and DropdownGaib.SetValues then
+            DropdownGaib:SetValues(currentGaibNames)
+        end
+        if ParaGaibStatus and ParaGaibStatus.SetDesc then
+            ParaGaibStatus:SetDesc(("Terdeteksi %d barang/makhluk mistis aktif di map!"):format(#currentGaibList))
+        end
+    end)
+end
+
+SecGaibScan:Button({
+    Title = "🔄 Refresh Radar Barang Ghaib",
+    Desc = "Pindai ulang seluruh bahan gaib, dupa, kemenyan, jamur & hantu di map",
+    Callback = function() refreshGaibScanner() end
+})
+
+SecGaibScan:Button({
+    Title = "🚀 Teleport ke Barang Ghaib Terpilih",
+    Desc = "Pindah seketika ke lokasi bahan atau makhluk ghaib yang dipilih di dropdown",
+    Callback = function()
+        local target = currentGaibList[selectedGaibIndex]
+        if target and target.part then
+            tpToPos(target.part.Position + Vector3.new(0, 3, 0))
+            WindUI:Notify({
+                Title = "👻 Teleport Ghaib",
+                Desc = "Teleport ke " .. target.name,
+                Duration = 3,
+                Icon = "sparkles"
+            })
+        else
+            WindUI:Notify({
+                Title = "👻 Teleport Ghaib",
+                Desc = "Barang ghaib tidak ditemukan / silakan refresh dulu",
+                Duration = 3,
+                Icon = "info"
+            })
+        end
+    end
+})
+
+SecGaibScan:Button({
+    Title = "⚡ Ambil Barang Ghaib Terpilih / Terdekat",
+    Desc = "Teleport & langsung trigger ambil barang ghaib",
+    Callback = function()
+        local target = currentGaibList[selectedGaibIndex] or (currentGaibList[1])
+        if target and target.prompt and target.part then
+            local root = getRoot()
+            if root then
+                root.CFrame = CFrame.new(target.part.Position + Vector3.new(0, 2, 0))
+                local pDelay = State.ForagePickupDelay or 0.35
+                task.wait(math.max(0.05, pDelay * 0.4))
+                safeFirePrompt(target.prompt)
+                task.wait(math.max(0.08, pDelay))
+                refreshGaibScanner()
+            end
+        else
+            WindUI:Notify({
+                Title = "👻 Ambil Ghaib",
+                Desc = "Target bukan barang yang bisa diambil / tidak ada prompt",
+                Duration = 3,
+                Icon = "info"
+            })
+        end
+    end
 })
 
 local SecGaib = TabTangkap:Section({ Title = "Event Malam & Pasar Gaib" })
@@ -6372,6 +7026,14 @@ SecTernakAuto:Button({
     end
 })
 
+SecTernakAuto:Dropdown({
+    Title = "Filter Jenis Babi Saat Jual Batch",
+    Desc = "Melindungi babi varian/imut/induk agar tidak terikut terjual",
+    Values = { "Simpan Varian Langka/Imut", "Simpan Induk Betina", "Hanya Babi Biasa Dewasa", "Jual Semua (Bypass Varian)" },
+    Value = State.FilterBabiJual or "Simpan Varian Langka/Imut",
+    Callback = function(v) State.FilterBabiJual = v end
+})
+
 SecTernakAuto:Button({
     Title = "🐔 Bangun Kandang Ayam (Plot Sendiri)",
     Callback = function() task.spawn(function() doBangunKandang("Ayam") end) end
@@ -6385,6 +7047,140 @@ SecTernakAuto:Button({
 SecTernakAuto:Button({
     Title = "🐮 Bangun Kandang Sapi (Plot Sendiri)",
     Callback = function() task.spawn(function() doBangunKandang("Sapi") end) end
+})
+
+local SecRawatBabi = TabTernak:Section({ Title = "Perawatan Ternak (Gosok, Pakan & Olah)" })
+SecRawatBabi:Toggle({
+    Title = "Auto Mandikan / Gosok Babi Kotor",
+    Desc = "Otomatis pegang alat penggosok dan bersihkan babi di kandang agar nilai & pertumbuhannya maksimal",
+    Value = State.AutoGosokBabi,
+    Callback = function(v)
+        State.AutoGosokBabi = v
+        if v then autoRawatBabiLoop() end
+    end
+})
+
+SecRawatBabi:Toggle({
+    Title = "Auto Buatkan Pakan Babi dari Bahan Mentah",
+    Desc = "Jika pakan matang di tas habis, otomatis olah/masak Sate Kepiting, Sate Gagak, atau Jamur Rebus di kompor lalu isi palung",
+    Value = State.AutoCraftPakanBabi,
+    Callback = function(v)
+        State.AutoCraftPakanBabi = v
+        if v then autoRawatBabiLoop() end
+    end
+})
+
+SecRawatBabi:Toggle({
+    Title = "Auto Beri Pakan / Isi Palung Babi",
+    Desc = "Otomatis ambil pakan/masakan dari tas dan isi palung makan babi saat kosong",
+    Value = State.AutoFeedBabi,
+    Callback = function(v)
+        State.AutoFeedBabi = v
+        if v then autoRawatBabiLoop() end
+    end
+})
+
+SecRawatBabi:Toggle({
+    Title = "Auto Beri Pakan Ternak Lain (Ayam & Sapi)",
+    Desc = "Otomatis ambil Jagung dan isi palung makan kandang ayam & kandang sapi saat kosong",
+    Value = State.AutoFeedAllTernak,
+    Callback = function(v)
+        State.AutoFeedAllTernak = v
+        if v then autoRawatBabiLoop() end
+    end
+})
+
+SecRawatBabi:Slider({
+    Title = "Jeda Pengecekan Perawatan Babi (Detik)",
+    Step = 1,
+    Value = { Min = 2, Max = 15, Default = State.GosokBabiDelay or 4 },
+    Callback = function(v) State.GosokBabiDelay = v end
+})
+
+SecRawatBabi:Button({
+    Title = "✨ Gosok Semua Babi Kotor Sekarang",
+    Desc = "Equip penggosok dan bersihkan seluruh babi kotor di kandangmu seketika",
+    Callback = function()
+        task.spawn(function()
+            State._ManualGosok = true
+            local ok, msg = doGosokBabi()
+            State._ManualGosok = false
+            WindUI:Notify({
+                Title = "✨ Gosok Babi",
+                Desc = ok and ("Berhasil menggosok " .. msg .. " babi!") or tostring(msg),
+                Duration = 4,
+                Icon = ok and "sparkles" or "info"
+            })
+        end)
+    end
+})
+
+SecRawatBabi:Button({
+    Title = "🥣 Isi Palung Pakan Babi Sekarang",
+    Desc = "Pegang makanan/masakan dari tas dan isi palung kandang babi",
+    Callback = function()
+        task.spawn(function()
+            local ok, msg = doIsiPalungBabi()
+            WindUI:Notify({
+                Title = "🥣 Isi Palung",
+                Desc = ok and "Palung makan babi berhasil diisi!" or tostring(msg),
+                Duration = 4,
+                Icon = ok and "utensils" or "info"
+            })
+        end)
+    end
+})
+
+SecRawatBabi:Button({
+    Title = "🌾 Beri Pakan Ayam & Sapi Sekarang (Jagung)",
+    Desc = "Pegang Jagung dari tas dan isi palung makan kandang ayam & sapi",
+    Callback = function()
+        task.spawn(function()
+            local ok, count = doIsiPalungTernakLain()
+            WindUI:Notify({
+                Title = "🌾 Pakan Ternak",
+                Desc = ok and ("Berhasil mengisi " .. tostring(count) .. " palung ayam/sapi!") or tostring(count),
+                Duration = 4,
+                Icon = ok and "check" or "info"
+            })
+        end)
+    end
+})
+
+local SecBabiGuling = TabTernak:Section({ Title = "🍖 Panggang Babi Guling (Pemangang Kios Lv6+)" })
+
+SecBabiGuling:Toggle({
+    Title = "Auto Panggang Babi Guling",
+    Desc = "Otomatis bawa babi yang memenuhi syarat ke mesin Pemangang dan ambil Babi Guling saat matang",
+    Value = State.AutoBabiGuling,
+    Callback = function(v)
+        State.AutoBabiGuling = v
+        if v then autoRawatBabiLoop() end
+    end
+})
+
+SecBabiGuling:Dropdown({
+    Title = "Filter Jenis Babi untuk Babi Guling",
+    Desc = "Menentukan jenis babi yang diizinkan untuk dipanggang",
+    Values = { "Hanya Babi Biasa (Non-Varian)", "Semua Babi Dewasa (Berat >= 30kg)" },
+    Value = State.FilterBabiPanggang or "Hanya Babi Biasa (Non-Varian)",
+    Callback = function(v) State.FilterBabiPanggang = v end
+})
+
+SecBabiGuling:Button({
+    Title = "🍖 Panggang Babi Guling Sekarang",
+    Desc = "Cari babi sesuai kriteria di kandang → bawa ke mesin Pemangang → panggang",
+    Callback = function()
+        task.spawn(function()
+            local ok, msg = doPanggangBabiGuling()
+            WindUI:Notify({
+                Title = "🍖 Babi Guling",
+                Desc = ok and "Sukses memproses Babi Guling!" or tostring(msg),
+                Duration = 4,
+                Icon = ok and "flame" or "info"
+            })
+        end)
+    end
 })
 
 local SecExploitKandang = TabTernak:Section({ Title = "⚡ Exploit Kandang (Bug Abuse)" })
@@ -6560,6 +7356,114 @@ SecBrute:Button({
     Desc = "Coba 1.200+ kombinasi kode: PASAR001, DUKUN2024, GAIBFREE, dll",
     Callback = function()
         task.spawn(doBruteforceCode)
+    end
+})
+
+local manualBruteCodeText = ""
+SecBrute:Input({
+    Title = "📝 Input Kode Manual (Satu atau Banyak)",
+    Desc = "Ketik satu kode atau banyak kode sekaligus dipisah koma/spasi (contoh: PASAR1, DUKUN2025, UPDATE)",
+    Placeholder = "Contoh: KODE1, KODE2, KODE3...",
+    Callback = function(v)
+        manualBruteCodeText = v or ""
+    end
+})
+
+SecBrute:Button({
+    Title = "🎟️ Test / Redeem Kode Manual yang Diketik",
+    Desc = "Mencoba redeem setiap kode yang Anda ketik di atas satu per satu",
+    Callback = function()
+        task.spawn(function()
+            if manualBruteCodeText == "" then
+                WindUI:Notify({ Title = "Redeem", Desc = "Ketik kode terlebih dahulu di kolom input!", Duration = 3, Icon = "info" })
+                return
+            end
+            local list = {}
+            for token in manualBruteCodeText:gmatch("[^,%s]+") do
+                table.insert(list, token:upper():gsub("%s+", ""))
+            end
+            if #list == 0 then return end
+            
+            WindUI:Notify({ Title = "🔑 Redeem Manual", Desc = "Mencoba " .. #list .. " kode manual...", Duration = 3, Icon = "key" })
+            local successes = 0
+            for _, c in ipairs(list) do
+                local ok, msg = redeemCode(c)
+                if ok then
+                    successes = successes + 1
+                    WindUI:Notify({ Title = "🎉 Kode Sukses!", Desc = c .. " berhasil ditukar!", Duration = 5, Icon = "gift" })
+                else
+                    log("[Redeem Manual] " .. c .. " gagal: " .. tostring(msg))
+                end
+                task.wait(State.BruteforceDelay or 0.3)
+            end
+            WindUI:Notify({ Title = "Selesai", Desc = "Selesai memproses " .. #list .. " kode manual. Sukses: " .. successes, Duration = 4, Icon = "info" })
+        end)
+    end
+})
+
+SecBrute:Button({
+    Title = "⚡ Bruteforce Pola dari Kata Input Manual",
+    Desc = "Membuat ratusan variasi kode (angka 1-100, tahun 2024-2026, suffix VIP/UPDATE) berdasarkan kata yang Anda ketik",
+    Callback = function()
+        task.spawn(function()
+            if manualBruteCodeText == "" then
+                WindUI:Notify({ Title = "Bruteforce", Desc = "Ketik kata dasar dulu di kolom input (contoh: PASAR atau DUKUN)!", Duration = 4, Icon = "info" })
+                return
+            end
+            local prefixes = {}
+            for token in manualBruteCodeText:gmatch("[^,%s]+") do
+                table.insert(prefixes, token:upper())
+            end
+            local customCodes = {}
+            local suffixes = {
+                "", "1", "2", "3", "5", "10", "100", "500", "1000",
+                "01", "001", "002", "007", "2024", "2025", "2026",
+                "UPDATE", "BARU", "FREE", "GRATIS", "VIP", "DEV",
+                "HUTAN", "PASAR", "MALAM", "EVENT", "RELEASE", "RILIS"
+            }
+            for _, p in ipairs(prefixes) do
+                for _, s in ipairs(suffixes) do
+                    table.insert(customCodes, p .. s)
+                    if s ~= "" then
+                        table.insert(customCodes, p .. "_" .. s)
+                    end
+                end
+                for i = 1, 30 do
+                    table.insert(customCodes, p .. tostring(i))
+                end
+            end
+            
+            WindUI:Notify({
+                Title = "⚡ Bruteforce Kata Kunci",
+                Desc = "Mencoba " .. #customCodes .. " variasi dari kata kunci Anda...",
+                Duration = 4,
+                Icon = "zap"
+            })
+            
+            local rem = getR("RedeemCode") or getR("TukarKode") or getR("KodeHadiah")
+            if not rem then
+                WindUI:Notify({ Title = "Error", Desc = "Remote RedeemCode tidak ditemukan!", Duration = 3, Icon = "alert-triangle" })
+                return
+            end
+            
+            local found = 0
+            for _, code in ipairs(customCodes) do
+                local ok, res = pcall(function() return rem:InvokeServer(code) end)
+                if ok and res then
+                    local isSuccess = (res == true) or
+                                      (type(res) == "table" and res.ok ~= false and res.success ~= false) or
+                                      (type(res) == "string" and not res:lower():find("invalid") and
+                                       not res:lower():find("expired") and not res:lower():find("used"))
+                    if isSuccess then
+                        found = found + 1
+                        WindUI:Notify({ Title = "🎉 KODE DITEMUKAN!", Desc = "Kode '" .. code .. "' VALID! Hadiah masuk tas.", Duration = 8, Icon = "gift" })
+                        log("[Brute Manual] 🎉 KODE VALID DITEMUKAN: " .. code)
+                    end
+                end
+                task.wait(State.BruteforceDelay or 0.25)
+            end
+            WindUI:Notify({ Title = "Bruteforce Selesai", Desc = "Dicoba " .. #customCodes .. " variasi. Ditemukan: " .. found, Duration = 5, Icon = "info" })
+        end)
     end
 })
 
@@ -7063,6 +7967,149 @@ SecTpLoc:Button({
     Callback = function()
         local tg = Workspace:FindFirstChild("Tempa", true) or Workspace:FindFirstChild("PandaiBesi", true)
         if tg then tpToPos(tg:GetPivot().Position) end
+    end
+})
+
+-- SCANNER & TELEPORT NPC
+local SecTpNpc = TabTp:Section({ Title = "🤖 Scanner & Teleport NPC" })
+
+local currentNpcList = {}
+local currentNpcNames = { "Tekan Refresh..." }
+local selectedNpcIndex = 1
+
+local DropdownNpc = SecTpNpc:Dropdown({
+    Title = "Pilih NPC Tujuan",
+    Values = currentNpcNames,
+    Value = currentNpcNames[1],
+    Callback = function(v)
+        for i, item in ipairs(currentNpcList) do
+            if item.name == v then
+                selectedNpcIndex = i
+                break
+            end
+        end
+    end
+})
+
+local function refreshNpcList()
+    task.spawn(function()
+        currentNpcList = scanMapNPCs()
+        currentNpcNames = {}
+        for _, item in ipairs(currentNpcList) do
+            table.insert(currentNpcNames, item.name)
+        end
+        if #currentNpcNames == 0 then
+            table.insert(currentNpcNames, "Tidak ada NPC terdeteksi")
+        end
+        if DropdownNpc and DropdownNpc.SetValues then
+            DropdownNpc:SetValues(currentNpcNames)
+        end
+    end)
+end
+
+SecTpNpc:Button({
+    Title = "🚀 Teleport ke NPC Terpilih",
+    Desc = "Teleport langsung ke depan NPC yang dipilih di dropdown",
+    Callback = function()
+        local target = currentNpcList[selectedNpcIndex]
+        if target and target.part then
+            tpToPos(target.part.Position + Vector3.new(0, 3, 0))
+            WindUI:Notify({
+                Title = "🤖 Teleport NPC",
+                Desc = "Berhasil teleport ke " .. target.name,
+                Duration = 3,
+                Icon = "map-pin"
+            })
+        else
+            WindUI:Notify({
+                Title = "🤖 Teleport NPC",
+                Desc = "Target NPC tidak valid / silakan refresh",
+                Duration = 3,
+                Icon = "info"
+            })
+        end
+    end
+})
+
+SecTpNpc:Button({
+    Title = "🔄 Refresh Daftar NPC",
+    Desc = "Pindai ulang seluruh NPC di map",
+    Callback = function() refreshNpcList() end
+})
+
+-- SCANNER & TELEPORT PEMAIN
+local SecTpPlayer = TabTp:Section({ Title = "👥 Scanner & Teleport Pemain" })
+
+local selectedTpPlayerName = nil
+local function getTpPlayerNames()
+    local names = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then
+            local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+            local myRoot = getRoot()
+            local distStr = ""
+            if root and myRoot then
+                distStr = " [" .. math.floor((myRoot.Position - root.Position).Magnitude) .. "m]"
+            end
+            table.insert(names, p.DisplayName .. " (@" .. p.Name .. ")" .. distStr)
+        end
+    end
+    if #names == 0 then table.insert(names, "Tidak ada pemain lain di server") end
+    return names
+end
+
+local DropdownTpPlayer = SecTpPlayer:Dropdown({
+    Title = "Pilih Pemain di Server",
+    Values = getTpPlayerNames(),
+    Value = getTpPlayerNames()[1],
+    Callback = function(v)
+        local uname = v:match("@([%w_]+)")
+        if uname then
+            selectedTpPlayerName = uname
+        else
+            selectedTpPlayerName = v
+        end
+    end
+})
+
+SecTpPlayer:Button({
+    Title = "🚀 Teleport ke Pemain Terpilih",
+    Desc = "Teleport langsung ke lokasi pemain yang dipilih di dropdown",
+    Callback = function()
+        if not selectedTpPlayerName then
+            WindUI:Notify({ Title = "👥 Teleport", Desc = "Pilih pemain terlebih dahulu!", Duration = 3, Icon = "info" })
+            return
+        end
+        local targetPlr = Players:FindFirstChild(selectedTpPlayerName)
+        if targetPlr and targetPlr.Character then
+            local root = targetPlr.Character:FindFirstChild("HumanoidRootPart") or targetPlr.Character:FindFirstChildWhichIsA("BasePart")
+            if root then
+                tpToPos(root.Position + Vector3.new(0, 3, 0))
+                WindUI:Notify({
+                    Title = "👥 Teleport Pemain",
+                    Desc = "Teleport ke @" .. targetPlr.Name,
+                    Duration = 3,
+                    Icon = "user-check"
+                })
+                return
+            end
+        end
+        WindUI:Notify({
+            Title = "👥 Teleport Pemain",
+            Desc = "Karakter pemain tidak ditemukan / sedang mati",
+            Duration = 3,
+            Icon = "alert-circle"
+        })
+    end
+})
+
+SecTpPlayer:Button({
+    Title = "🔄 Refresh Daftar Pemain",
+    Desc = "Perbarui daftar pemain aktif dan jaraknya",
+    Callback = function()
+        if DropdownTpPlayer and DropdownTpPlayer.SetValues then
+            DropdownTpPlayer:SetValues(getTpPlayerNames())
+        end
     end
 })
 
